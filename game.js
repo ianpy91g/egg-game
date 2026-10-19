@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-11';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-12';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -232,40 +232,119 @@
   };
 
   // ---------- 小恐龍與蛋殼 ----------
-  function drawDino(ctx, x, baseY, s, t, capColor) {
-    var g = 'rgb(122,206,112)', gd = 'rgb(78,156,80)', belly = 'rgb(228,242,176)', spike = 'rgb(255,150,70)';
-    var bob = Math.sin(t * 4) * 3 * s, wave = Math.sin(t * 8) * 10 * s;
-    ellipse(ctx, x, baseY - 125 * s + bob + 70 * s, 58 * s, 70 * s, g);
-    ellipse(ctx, x, baseY - 95 * s + bob + 50 * s, 36 * s, 50 * s, belly);
-    [-1, 1].forEach(function (side) {
-      ellipse(ctx, x + side * 52 * s, baseY - 92 * s + bob - (side > 0 ? wave : 0) + 18 * s, 12 * s, 18 * s, gd);
-    });
-    var hx = x, hy = baseY - 150 * s + bob, hr = 56 * s;
-    [-26, 0, 26].forEach(function (dx, i) {
-      var tip = hy - hr - (i === 1 ? 16 : 10) * s;
-      polygon(ctx, [[hx + (dx - 12) * s, hy - hr * 0.8], [hx + (dx + 12) * s, hy - hr * 0.8], [hx + dx * s, tip]], spike);
-    });
-    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
-    ctx.strokeStyle = gd; ctx.lineWidth = Math.max(1, 3 * s); ctx.stroke();
-    var blink = (t % 3.2) < 0.12;
-    [-1, 1].forEach(function (side) {
-      var ex = hx + side * 22 * s, ey = hy - 6 * s;
-      if (blink) {
-        ctx.beginPath(); ctx.moveTo(ex - 10 * s, ey); ctx.lineTo(ex + 10 * s, ey);
-        ctx.strokeStyle = 'rgb(30,30,30)'; ctx.lineWidth = Math.max(2, 3 * s); ctx.stroke();
-      } else {
-        ellipse(ctx, ex, ey, 14 * s, 14 * s, '#fff');
-        ellipse(ctx, ex + 2 * s, ey + 2 * s, 8 * s, 8 * s, 'rgb(25,25,30)');
-        ellipse(ctx, ex + 5 * s, ey - 2 * s, 3 * s, 3 * s, '#fff');
-      }
-      ellipse(ctx, ex + side * 6 * s - s, ey + 18.5 * s, 9 * s, 4.5 * s, 'rgb(255,150,150)');
-    });
-    ctx.beginPath(); ctx.ellipse(hx, hy + 17 * s, 16 * s, 11 * s, 0, 0.1 * Math.PI, 0.9 * Math.PI);
-    ctx.strokeStyle = 'rgb(40,70,40)'; ctx.lineWidth = Math.max(2, 3 * s); ctx.stroke();
-    var cap = [[hx - 46 * s, hy - hr * 0.62]];
-    for (var i = 1; i < 8; i++) cap.push([hx - 46 * s + i * 92 * s / 8, hy - hr * 0.62 + (i % 2 ? 8 : -4) * s]);
-    cap.push([hx + 46 * s, hy - hr * 0.62], [hx + 30 * s, hy - hr * 1.25], [hx - 30 * s, hy - hr * 1.25]);
-    polygon(ctx, cap, rgb(capColor), rgb(shade(capColor, -0.4)), 2);
+  // 扁平風的藍色小暴龍（側面朝右）：大方頭、笑嘴小白牙、背上深色條紋、淺色肚子。
+  // 在 800x700 的設計座標裡畫，再縮放到畫面；下半身會被蛋殼擋住。
+  function drawDino(ctx, x, baseY, s, t, capColor, clipY) {   // clipY：只畫到這條線以上（下半身藏在蛋殼裡）
+    var BODY = 'rgb(96,158,214)', DARK = 'rgb(64,122,180)', BELLY = 'rgb(166,208,236)', INK = 'rgb(28,30,36)';
+    var bob = Math.sin(t * 4) * 3 * s, wave = Math.sin(t * 7);
+    var k = 0.34 * s, i;
+    ctx.save();
+    if (clipY !== undefined) { ctx.beginPath(); ctx.rect(x - 2000, clipY - 4000, 4000, 4000); ctx.clip(); }
+    ctx.translate(x - 34 * s, baseY + 27 * s + bob); ctx.scale(k, k); ctx.translate(-420, -700);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    function bodyPath() {
+      ctx.beginPath();
+      ctx.moveTo(92, 362);
+      ctx.quadraticCurveTo(150, 440, 250, 420);
+      ctx.bezierCurveTo(330, 405, 380, 350, 392, 270);
+      ctx.bezierCurveTo(398, 200, 395, 130, 440, 100);
+      ctx.bezierCurveTo(480, 75, 560, 80, 640, 92);
+      ctx.bezierCurveTo(700, 100, 722, 120, 720, 170);
+      ctx.lineTo(718, 235);
+      ctx.bezierCurveTo(716, 290, 680, 312, 600, 318);
+      ctx.bezierCurveTo(550, 322, 520, 325, 505, 335);
+      ctx.bezierCurveTo(540, 380, 560, 450, 548, 520);
+      ctx.bezierCurveTo(540, 580, 500, 600, 440, 610);
+      ctx.lineTo(300, 600);
+      ctx.bezierCurveTo(220, 580, 140, 480, 92, 362);
+      ctx.closePath();
+    }
+    // 遠側的腳（深色，在身體後面）
+    ctx.beginPath();
+    ctx.moveTo(425, 560); ctx.bezierCurveTo(470, 540, 520, 538, 532, 565); ctx.lineTo(532, 650);
+    ctx.lineTo(548, 668); ctx.quadraticCurveTo(556, 690, 535, 692); ctx.lineTo(430, 692); ctx.quadraticCurveTo(410, 692, 414, 672); ctx.lineTo(420, 600); ctx.closePath();
+    ctx.fillStyle = DARK; ctx.fill();
+    ellipse(ctx, 556, 94, 34, 18, DARK);   // 頭頂的小突起
+
+    // 身體
+    bodyPath(); ctx.fillStyle = BODY; ctx.fill();
+    ctx.save(); bodyPath(); ctx.clip();
+    ctx.beginPath();   // 肚子
+    ctx.moveTo(505, 335); ctx.bezierCurveTo(540, 380, 560, 450, 548, 520); ctx.bezierCurveTo(540, 580, 500, 600, 440, 610);
+    ctx.lineTo(395, 606); ctx.bezierCurveTo(425, 520, 455, 420, 488, 330); ctx.closePath();
+    ctx.fillStyle = BELLY; ctx.fill();
+    ctx.beginPath();   // 尾巴下緣
+    ctx.moveTo(92, 362); ctx.bezierCurveTo(140, 480, 220, 580, 300, 600); ctx.lineTo(330, 604);
+    ctx.bezierCurveTo(240, 560, 160, 480, 92, 362); ctx.closePath();
+    ctx.fillStyle = BELLY; ctx.fill();
+    // 背上的深色條紋：從背脊往身體裡的圓頭短筆觸（被身體輪廓裁切，所以外緣貼齊背脊）
+    var stripes = [[392, 172, 1, 0.15, 46], [390, 236, 1, 0.3, 48], [384, 300, 1, 0.55, 46],
+                   [346, 376, 0.55, 1, 44], [296, 402, 0.3, 1, 42], [244, 420, 0.2, 1, 40], [192, 424, 0.35, 1, 36], [146, 410, 0.55, 1, 30]];
+    ctx.strokeStyle = DARK; ctx.lineCap = 'round';
+    for (i = 0; i < stripes.length; i++) {
+      var q = stripes[i], n = Math.sqrt(q[2] * q[2] + q[3] * q[3]), ux = q[2] / n, uy = q[3] / n;
+      ctx.lineWidth = q[4] * 0.42;
+      ctx.beginPath(); ctx.moveTo(q[0] - ux * 20, q[1] - uy * 20); ctx.lineTo(q[0] + ux * q[4], q[1] + uy * q[4]); ctx.stroke();
+    }
+    ctx.restore();
+
+    // 近側的腳
+    ctx.beginPath();
+    ctx.moveTo(262, 560); ctx.bezierCurveTo(300, 520, 392, 535, 402, 600); ctx.lineTo(396, 662);
+    ctx.lineTo(410, 676); ctx.quadraticCurveTo(418, 698, 396, 700); ctx.lineTo(282, 700); ctx.quadraticCurveTo(262, 700, 268, 680);
+    ctx.lineTo(286, 632); ctx.bezierCurveTo(266, 620, 254, 592, 262, 560); ctx.closePath();
+    ctx.fillStyle = BODY; ctx.fill();
+
+    // 小手：遠側深色、近側揮手
+    function arm(pts, w, col, claws) {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j][0], pts[j][1]);
+      ctx.stroke();
+      var e = pts[pts.length - 1];
+      ctx.lineWidth = w * 0.5;
+      for (j = 0; j < claws.length; j++) { ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[0] + claws[j][0], e[1] + claws[j][1]); ctx.stroke(); }
+    }
+    arm([[548, 408], [586, 416], [600, 442]], 28, DARK, [[-10, 16], [8, 16]]);
+    var wy = wave * 10;
+    arm([[450, 392], [496, 414], [510 + wave * 4, 448 - wy]], 38, 'rgb(78,138,196)', [[-12, 18], [6, 20], [18, 8]]);
+
+    // 臉
+    var blink = (t % 3.4) < 0.12;
+    if (blink) {
+      ctx.beginPath(); ctx.arc(505, 140, 20, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.strokeStyle = INK; ctx.lineWidth = 7; ctx.stroke();
+    } else {
+      ellipse(ctx, 505, 145, 28, 28, '#fff');
+      ellipse(ctx, 513, 142, 18, 18, INK);
+      ellipse(ctx, 519, 135, 5.5, 5.5, '#fff');
+    }
+    ellipse(ctx, 470, 188, 23, 13, 'rgb(244,152,150)');   // 腮紅
+    ellipse(ctx, 658, 166, 6, 9, DARK); ellipse(ctx, 694, 160, 5, 8, DARK);   // 鼻孔
+    // 笑嘴＋一排小白牙
+    ctx.beginPath(); ctx.moveTo(503, 207); ctx.quadraticCurveTo(504, 226, 524, 228);
+    ctx.bezierCurveTo(600, 250, 676, 250, 716, 238);
+    ctx.strokeStyle = INK; ctx.lineWidth = 7; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    for (i = 0; i < 6; i++) {
+      var tx = 548 + i * 30, ty = 236 + 10 * Math.sin((i + 0.5) / 6 * Math.PI) - i * 0.6;
+      ctx.beginPath(); ctx.moveTo(tx - 9, ty + 3); ctx.lineTo(tx + 9, ty + 3); ctx.lineTo(tx, ty + 19); ctx.closePath(); ctx.fill();
+    }
+
+    // 頭頂的蛋殼帽：鋸齒邊＋淡淡的斑點
+    ctx.translate(520, 92); ctx.rotate(-0.18);
+    ctx.beginPath(); ctx.moveTo(-92, 14);
+    for (i = 1; i < 10; i++) ctx.lineTo(-92 + i * 184 / 10, (i % 2 ? -8 : 20));
+    ctx.lineTo(92, 14);
+    ctx.bezierCurveTo(92, -60, 50, -100, 0, -100); ctx.bezierCurveTo(-50, -100, -92, -60, -92, 14);
+    ctx.closePath();
+    ctx.fillStyle = rgb(capColor); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-70, -30); ctx.bezierCurveTo(-60, -80, -20, -92, 10, -90);   // 亮面
+    ctx.strokeStyle = rgb(shade(capColor, 0.35)); ctx.lineWidth = 12; ctx.stroke();
+    var sp = [[-30, -50, 9], [24, -66, 7], [48, -24, 10], [-10, -16, 6], [-60, -4, 7]];
+    for (i = 0; i < sp.length; i++) ellipse(ctx, sp[i][0], sp[i][1], sp[i][2], sp[i][2] * 0.8, rgb(shade(capColor, -0.25)));
+    ctx.restore();
   }
   function drawCup(ctx, art, cx, ground, height) {
     var g = art.geometry(ground, height, 0), k = art.d.k, topV = 0.2, pts = [], i, v;
@@ -758,7 +837,7 @@
       this.drawShadow(ctx, EGG_X, g.rw);
       var g0 = this.art.geometry(GROUND_Y, d.px, 0), cupTop = g0.cy + 0.2 * g0.rh;
       var pop = t > 0.45 ? easeOutBack(clamp((t - 0.45) / 0.5)) : 0;
-      if (pop > 0) drawDino(ctx, EGG_X, cupTop + 45 + (1 - pop) * 160, 1.3 * Math.max(0.01, pop), this.time, d.base);
+      if (pop > 0) drawDino(ctx, EGG_X, cupTop + 45 + (1 - pop) * 160, 1.3 * Math.max(0.01, pop), this.time, d.base, cupTop + 40);
       drawCup(ctx, this.art, EGG_X, GROUND_Y, d.px);
     }
     for (i = 0; i < this.shards.length; i++) {
