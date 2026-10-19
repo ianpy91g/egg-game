@@ -7,7 +7,13 @@
   'use strict';
 
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
-  var HOLD_TIME = 0.5, ATTEMPTS = 5, KIDS_RATIO = 0.6;
+  // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
+  var MODES = {
+    kids:   { label: '兒童模式', short: '兒童', ratio: 0.6,  hold: 0.5, attempts: 5, color: [96, 220, 150] },
+    normal: { label: '一般模式', short: '一般', ratio: 1.0,  hold: 0.5, attempts: 5, color: [240, 238, 245] },
+    hard:   { label: '困難模式', short: '困難', ratio: 1.25, hold: 0.5, attempts: 5, color: [255, 90, 90] }
+  };
+  var MODE_ORDER = ['kids', 'normal', 'hard'];
   var CONTACT_FORCE = 3.0;   // 握力到這個值蛋才開始變形
   var START_FORCE = 3.0;     // 超過這個值開始算一次捏
   var RELEASE_FORCE = 1.5;   // 低於這個值算完全放開
@@ -38,9 +44,9 @@
     [116, 88, 68], [104, 80, 64], [92, 72, 60], [80, 62, 54], [64, 46, 42]];
 
   // ---------- 小工具 ----------
-  function threshold(level, kids) {
+  function threshold(level, mode) {
     var base = 10 + 5 * (level - 1);
-    return kids ? Math.round(base * KIDS_RATIO * 10) / 10 : base;
+    return Math.round(base * MODES[mode || 'normal'].ratio);   // 四捨五入成整數（困難 ×1.25 才不會出現 12.5）
   }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function clamp(x, lo, hi) { if (lo === undefined) { lo = 0; hi = 1; } return Math.max(lo, Math.min(hi, x)); }
@@ -271,12 +277,98 @@
     } catch (e) { /* 忽略 */ }
   };
 
+  // ---------- 背景音樂（程式合成的 8 小節循環，C → Am → F → G） ----------
+  // 旋律以八分音符為單位，null = 延長前一個音
+  var MELODY = [
+    72, null, 76, null, 79, null, 76, 74,   72, null, 69, null, 72, 76, null, null,
+    77, null, 76, 74, 72, null, 69, null,   71, null, 74, null, 79, null, 77, 74,
+    76, null, 79, null, 84, null, 79, null, 81, null, 79, 76, 72, null, 76, null,
+    77, 79, 81, null, 79, 77, 76, 74,       74, null, 71, null, 74, null, 67, null
+  ];
+  var BASS = [48, 45, 41, 43, 48, 45, 41, 43];   // 每小節的根音（每拍彈根音與五度）
+  var BPM = 128;
+
+  function Music(ac) {
+    this.ac = ac;
+    this.enabled = false;
+    this.step = 0;
+    this.next = 0;
+    this.master = ac.createGain();
+    this.master.gain.value = 0;
+    this.master.connect(ac.destination);
+    var n = Math.floor(ac.sampleRate * 0.05), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n / 6));
+    this.noise = buf;
+  }
+  Music.VOLUME = 0.13;
+  Music.prototype.setEnabled = function (on) {
+    this.enabled = on;
+    var t = this.ac.currentTime;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setTargetAtTime(on ? Music.VOLUME : 0, t, 0.2);
+    if (on) { this.next = t + 0.1; }
+  };
+  Music.prototype.duck = function (seconds) {   // 捏破時讓音樂暫時變小聲
+    if (!this.enabled) return;
+    var t = this.ac.currentTime, g = this.master.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(Music.VOLUME * 0.2, t, 0.03);
+    g.setTargetAtTime(Music.VOLUME, t + seconds, 0.4);
+  };
+  Music.prototype.note = function (type, midi, t, dur, vol) {
+    var o = this.ac.createOscillator(), g = this.ac.createGain();
+    o.type = type;
+    o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+  };
+  Music.prototype.kick = function (t) {
+    var o = this.ac.createOscillator(), g = this.ac.createGain();
+    o.frequency.setValueAtTime(130, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.2);
+  };
+  Music.prototype.hat = function (t, vol) {
+    var s = this.ac.createBufferSource(), g = this.ac.createGain(), f = this.ac.createBiquadFilter();
+    s.buffer = this.noise; f.type = 'highpass'; f.frequency.value = 6000; g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(this.master);
+    s.start(t);
+  };
+  Music.prototype.tick = function () {   // 每幀呼叫：預先排好接下來 0.2 秒內的音符
+    if (!this.enabled) return;
+    var now = this.ac.currentTime, eighth = 60 / BPM / 2;
+    if (this.next < now - 0.3) this.next = now + 0.05;   // 分頁在背景太久，重新對時
+    while (this.next < now + 0.2) {
+      var t = this.next, st = this.step, bar = Math.floor(st / 8) % 8, inBar = st % 8;
+      var m = MELODY[st];
+      if (m !== null) {
+        var len = 1;
+        while (len < 4 && MELODY[(st + len) % MELODY.length] === null) len++;
+        this.note('square', m, t, eighth * len * 0.9, 0.16);
+      }
+      if (inBar % 2 === 0) {   // 低音：每拍，根音與五度交替
+        var root = BASS[bar];
+        this.note('triangle', inBar % 4 === 0 ? root : root + 7, t, eighth * 1.8, 0.5);
+      }
+      if (inBar === 0 || inBar === 4) this.kick(t);
+      this.hat(t, inBar % 2 ? 0.25 : 0.12);
+      this.step = (st + 1) % MELODY.length;
+      this.next += eighth;
+    }
+  };
+
   // ---------- 遊戲 ----------
   function Game(env) {
     this.env = env;           // { grip:{force,rising,connected,status}, storage, audio, connectGrip(), bluetoothSupported }
     this.sfx = new Sfx(env.audio);
     this.save = this.loadSave();
-    this.kids = this.save.kids;
+    this.modeName = this.save.mode;
     this.selected = this.unlocked();
     this.time = 0;
     this.sim = 0;
@@ -293,23 +385,33 @@
   var G = Game.prototype;
 
   // iOS 要在使用者第一次觸碰後才能建立/啟動音效，所以音效可以晚一點才接上
-  G.setAudio = function (ac) { this.sfx = new Sfx(ac); };
+  G.setAudio = function (ac) {
+    this.sfx = new Sfx(ac);
+    try {
+      this.music = new Music(ac);
+      this.music.setEnabled(this.save.music);
+    } catch (e) { this.music = null; }
+  };
 
   // ---- 存檔 ----
   G.loadSave = function () {
-    var s = { kids: false, unlocked: { normal: 1, kids: 1 }, best: { normal: {}, kids: {} } };
+    var s = { mode: 'normal', music: true, unlocked: { normal: 1, kids: 1, hard: 1 }, best: { normal: {}, kids: {}, hard: {} } };
     try {
       var d = JSON.parse(this.env.storage.get() || 'null');
       if (d) {
-        s.kids = !!d.kids;
-        if (d.unlocked) { s.unlocked.normal = d.unlocked.normal || 1; s.unlocked.kids = d.unlocked.kids || 1; }
-        if (d.best) { s.best.normal = d.best.normal || {}; s.best.kids = d.best.kids || {}; }
+        s.mode = MODES[d.mode] ? d.mode : d.kids ? 'kids' : 'normal';   // 舊存檔只有 kids 開關
+        s.music = d.music !== false;
+        MODE_ORDER.forEach(function (m) {
+          if (d.unlocked && d.unlocked[m]) s.unlocked[m] = d.unlocked[m];
+          if (d.best && d.best[m]) s.best[m] = d.best[m];
+        });
       }
     } catch (e) { /* 沒有存檔或格式錯誤 */ }
     return s;
   };
-  G.saveData = function () { this.save.kids = this.kids; try { this.env.storage.set(JSON.stringify(this.save)); } catch (e) { } };
-  G.mode = function () { return this.kids ? 'kids' : 'normal'; };
+  G.saveData = function () { this.save.mode = this.modeName; try { this.env.storage.set(JSON.stringify(this.save)); } catch (e) { } };
+  G.mode = function () { return this.modeName; };
+  G.cfg = function () { return MODES[this.modeName]; };
   G.unlocked = function () { return Math.min(LEVELS, this.save.unlocked[this.mode()]); };
 
   // ---- 輸入 ----
@@ -325,9 +427,11 @@
   // ---- 關卡流程 ----
   G.startLevel = function (level, intro) {
     this.level = level;
-    this.thr = threshold(level, this.kids);
+    this.thr = threshold(level, this.modeName);
+    this.holdTime = this.cfg().hold;
+    this.maxAttempts = this.cfg().attempts;
     this.art = new EggArt(level, Math.floor(Math.random() * 9999));
-    this.attempts = ATTEMPTS;
+    this.attempts = this.maxAttempts;
     this.inAttempt = false;
     this.hold = 0; this.crack = 0; this.visForce = 0;
     this.attemptPeak = 0; this.levelPeak = 0; this.levelStart = null;
@@ -342,6 +446,7 @@
     this.state = 'smash'; this.smashT = 0; this.animT = 0;
     this.screenShake = 0.45; this.flash = 0.18;
     this.sfx.play('smash');
+    if (this.music) this.music.duck(this.level === LEVELS ? 3.0 : 1.6);
     this.clearTime = this.time - (this.levelStart === null ? this.time : this.levelStart);
     var g = this.art.geometry(GROUND_Y, d.px, 1.0);
     this.smashGeom = g;
@@ -368,7 +473,7 @@
   };
   G.finishLevel = function () {
     var key = String(this.level), best = this.save.best[this.mode()][key];
-    var record = { peak: Math.round(this.levelPeak * 10) / 10, time: Math.round(this.clearTime * 100) / 100, tries: ATTEMPTS - this.attempts + 1 };
+    var record = { peak: Math.round(this.levelPeak * 10) / 10, time: Math.round(this.clearTime * 100) / 100, tries: this.maxAttempts - this.attempts + 1 };
     this.newBest = !best || record.time < best.time;
     if (this.newBest) this.save.best[this.mode()][key] = record;
     this.save.unlocked[this.mode()] = Math.max(this.save.unlocked[this.mode()], Math.min(LEVELS, this.level + 1));
@@ -401,6 +506,7 @@
     var force = this.readInput(dt);
     this.force = force;
     this.time += dt;
+    if (this.music) this.music.tick();
     if (this.state !== this.lastState) { this.lastState = this.state; this.stateT = 0; }
     this.stateT += dt;
     this.gripConfirm(this.env.grip.force);
@@ -475,16 +581,16 @@
     // 在門檻以上累積撐住的時間；稍微掉下來時慢慢退
     if (this.inAttempt && force >= thr) this.hold += dt;
     else this.hold = Math.max(0, this.hold - dt * 3);
-    var p = force / thr, cNow = clamp((p - 0.5) / 0.5) * 0.7 + clamp(this.hold / HOLD_TIME) * 0.3;
+    var p = force / thr, cNow = clamp((p - 0.5) / 0.5) * 0.7 + clamp(this.hold / this.holdTime) * 0.3;
     if (cNow > this.crack) {
       if (Math.floor(cNow * 8) > Math.floor(this.crack * 8)) this.sfx.play('crack');
       this.crack = cNow;
     }
-    if (this.hold >= HOLD_TIME) { this.levelPeak = Math.max(this.levelPeak, force); this.startSmash(); return; }
+    if (this.hold >= this.holdTime) { this.levelPeak = Math.max(this.levelPeak, force); this.startSmash(); return; }
     if (peakEnd !== null) {
       this.attempts -= 1; this.hold = 0;
       var y = GROUND_Y - this.art.d.px - 40;
-      if (peakEnd >= thr) this.floatText('到了！但要撐住 0.5 秒', GOLD, EGG_X, y);
+      if (peakEnd >= thr) this.floatText('到了！但要撐住 ' + this.holdTime + ' 秒', GOLD, EGG_X, y);
       else this.floatText('最高 ' + peakEnd.toFixed(1) + '，還差 ' + (thr - peakEnd).toFixed(1) + '！', TEXT, EGG_X, y);
       this.sfx.play('miss');
       if (this.attempts <= 0) this.failTimer = 1.3;
@@ -517,7 +623,8 @@
     }
     if (id === 'grip') this.env.connectGrip(false);
     else if (id === 'gripall') this.env.connectGrip(true);
-    else if (id === 'kids') this.toggleKids();
+    else if (id === 'mode') this.cycleMode();
+    else if (id === 'music') this.toggleMusic();
     else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'tomenu-end') this.confirm();
     else if (id === 'replay') this.startLevel(this.level);
     else if (id === 'menu') this.toMenu();
@@ -532,10 +639,19 @@
     else if (code === 'Enter') this.confirm();
     else if (s === 'menu' && code === 'ArrowLeft') this.selected = Math.max(1, this.selected - 1);
     else if (s === 'menu' && code === 'ArrowRight') this.selected = Math.min(this.unlocked(), this.selected + 1);
-    else if (s === 'menu' && code === 'KeyK') this.toggleKids();
+    else if (s === 'menu' && code === 'KeyK') this.cycleMode();
+    else if (code === 'KeyM') this.toggleMusic();
     else if (s === 'clear' && code === 'KeyR') this.startLevel(this.level);
   };
-  G.toggleKids = function () { this.kids = !this.kids; this.selected = Math.min(this.selected, this.unlocked()); this.saveData(); this.startLevel(this.selected, false); this.state = 'menu'; };
+  G.cycleMode = function () {
+    this.modeName = MODE_ORDER[(MODE_ORDER.indexOf(this.modeName) + 1) % MODE_ORDER.length];
+    this.selected = Math.min(this.selected, this.unlocked());
+    this.saveData(); this.startLevel(this.selected, false); this.state = 'menu';
+  };
+  G.toggleMusic = function () {
+    this.save.music = !this.save.music; this.saveData();
+    if (this.music) this.music.setEnabled(this.save.music);
+  };
 
   // ---------- 繪圖 ----------
   G.text = function (ctx, s, size, color, x, y, o) {
@@ -627,22 +743,22 @@
       polygon(ctx, [[x + w + 4, py], [x + w + 16, py - 7], [x + w + 16, py + 7]], rgb(TEXT));
     }
     this.text(ctx, force.toFixed(1), 48, color, x + w / 2, y - 40);
-    var by = y + h + 26, hp = clamp(this.hold / HOLD_TIME);
+    var by = y + h + 26, hp = clamp(this.hold / this.holdTime);
     roundRect(ctx, x - 40, by, w + 80, 14, 7); ctx.fillStyle = 'rgb(30,26,40)'; ctx.fill();
     if (hp > 0) {
       roundRect(ctx, x - 40, by, (w + 80) * hp, 14, 7); ctx.fillStyle = rgb(ORANGE); ctx.fill();
       this.text(ctx, '撐住！', 26, ORANGE, x + w / 2, by + 36);
-    } else this.text(ctx, '撐住 ' + HOLD_TIME + ' 秒', 18, DIM, x + w / 2, by + 30);
+    } else this.text(ctx, '撐住 ' + this.holdTime + ' 秒', 18, DIM, x + w / 2, by + 30);
   };
   G.drawHud = function (ctx) {
     var d = this.art.d;
     this.text(ctx, '第 ' + this.level + ' 關　' + d.name, 26, TEXT, EGG_X, 30);
-    if (this.kids) this.text(ctx, '兒童模式', 18, GOLD, EGG_X, 58);
+    if (this.modeName !== 'normal') this.text(ctx, this.cfg().label, 18, this.cfg().color, EGG_X, 58);
     this.text(ctx, '機會', 18, TEXT, 36, 30);
-    for (var i = 0; i < ATTEMPTS; i++) this.miniArt.draw(ctx, 78 + i * 30, 44, 28, 0, 0, i >= this.attempts);
+    for (var i = 0; i < this.maxAttempts; i++) this.miniArt.draw(ctx, 78 + i * 30, 44, 28, 0, 0, i >= this.attempts);
     this.text(ctx, '實際大小 ' + d.size, 18, TEXT, EGG_X, GROUND_Y + 30);
     if (this.state === 'play' || this.state === 'fail') {
-      var how = this.env.grip.connected ? '握力到 ' + fmt(this.thr) + ' 以上並撐住 ' + HOLD_TIME + ' 秒就能捏破！'
+      var how = this.env.grip.connected ? '握力到 ' + fmt(this.thr) + ' 以上並撐住 ' + this.holdTime + ' 秒就能捏破！'
         : '沒有握力球時，按住畫面也可以捏';
       this.text(ctx, how, 18, DIM, EGG_X, GROUND_Y + 56);
     }
@@ -669,8 +785,10 @@
     this.drawSky(ctx, this.selected);
     this.panel(ctx, 40, 18, W - 80, 170, 0.66);
     this.text(ctx, '捏蛋大挑戰', 72, GOLD, W / 2, 70);
-    this.text(ctx, '握力超過門檻、撐住 0.5 秒，就能把蛋捏破！每關 5 次機會', 24, TEXT, W / 2, 135);
-    this.text(ctx, '點蛋選關卡', 17, DIM, W / 2, 168);
+    var c = this.cfg();
+    this.text(ctx, '握力超過門檻、撐住 ' + c.hold + ' 秒，就能把蛋捏破！每關 ' + c.attempts + ' 次機會', 24, TEXT, W / 2, 135);
+    this.text(ctx, '點蛋選關卡　·　' + c.label + (c.ratio !== 1 ? '：握力門檻 ×' + c.ratio : ''), 17, c.color, W / 2, 168);
+    this.drawButton(ctx, this.button('music', W - 200, 30, 148, 40, this.save.music ? '♪ 音樂：開' : '♪ 音樂：關', { on: this.save.music }));
     this.menuArts.forEach(function (art, i) {
       var lv = i + 1, x = 70 + i * 91, h = 24 + art.d.px * 0.32, locked = lv > self.unlocked();
       art.draw(ctx, x, GROUND_Y, h, 0, 0, locked);
@@ -683,10 +801,10 @@
     });
     var d = EGGS[this.selected - 1], best = this.save.best[this.mode()][String(this.selected)];
     this.panel(ctx, 140, 200, W - 280, 58, 0.66);
-    this.text(ctx, '第 ' + this.selected + ' 關　' + d.name + '　需要握力 ' + fmt(threshold(this.selected, this.kids)), 24, TEXT, W / 2, 218);
+    this.text(ctx, '第 ' + this.selected + ' 關　' + d.name + '　需要握力 ' + fmt(threshold(this.selected, this.modeName)), 24, TEXT, W / 2, 218);
     this.text(ctx, best ? '最佳 ' + best.time.toFixed(2) + ' 秒（最高握力 ' + fmt(best.peak) + '）' : '還沒挑戰過', 16, DIM, W / 2, 244);
     var g = this.env.grip, bw = 230, gap = 16, x0 = (W - (bw * 3 + gap * 2)) / 2, by = GROUND_Y + 20;
-    this.drawButton(ctx, this.button('kids', x0, by, bw, 46, this.kids ? '兒童模式：開（×0.6）' : '兒童模式：關', { on: this.kids }));
+    this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { on: this.modeName !== 'normal' }));
     this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '開始第 ' + this.selected + ' 關', { primary: true }));
     var gl = g.connected ? '✔ 已連線握力球' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
     this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, { on: g.connected }));
@@ -701,7 +819,7 @@
     this.art.draw(ctx, EGG_X, GROUND_Y, Math.max(2, d.px * easeOutBack(clamp(this.introT / 0.5))), 0, 0, false);
     this.panel(ctx, W / 2 - 330, 40, 660, 170);
     this.text(ctx, '第 ' + this.level + ' 關　' + d.name, 48, GOLD, W / 2, 82);
-    this.text(ctx, '需要握力 ' + fmt(this.thr) + '，撐住 ' + HOLD_TIME + ' 秒', 26, TEXT, W / 2, 135);
+    this.text(ctx, '需要握力 ' + fmt(this.thr) + '，撐住 ' + this.holdTime + ' 秒', 26, TEXT, W / 2, 135);
     this.text(ctx, d.fact, 18, DIM, W / 2, 178);
     if (this.introT > 1.0) this.drawButton(ctx, this.button('go', W / 2 - 110, GROUND_Y + 30, 220, 46, '開始（或直接捏下去）', { primary: true }));
   };
@@ -729,14 +847,15 @@
       if (this.state === 'clear') {
         this.drawResult(ctx, d.name + ' 捏破了！', GOLD, [
           ['用時 ' + this.clearTime.toFixed(2) + ' 秒' + (this.newBest ? '　新紀錄！' : ''), TEXT],
-          ['最高握力 ' + this.levelPeak.toFixed(1) + '　·　第 ' + (ATTEMPTS - this.attempts + 1) + ' 次成功', TEXT],
-          ['下一關：' + EGGS[this.level].name + '（需要 ' + fmt(threshold(this.level + 1, this.kids)) + '）', DIM]],
+          ['最高握力 ' + this.levelPeak.toFixed(1) + '　·　第 ' + (this.maxAttempts - this.attempts + 1) + ' 次成功', TEXT],
+          ['下一關：' + EGGS[this.level].name + '（需要 ' + fmt(threshold(this.level + 1, this.modeName)) + '）', DIM]],
           [['next', '下一關'], ['replay', '再玩這關'], ['menu', '選單']]);
       } else if (this.state === 'fail') {
         this.drawResult(ctx, '蛋還完好如初…', RED, [
           ['這關最高握力 ' + this.levelPeak.toFixed(1) + '　/　需要 ' + fmt(this.thr), TEXT],
-          ['提示：用力捏到門檻以上，再撐住半秒', DIM],
-          [this.kids ? '多練習幾次，握力會越來越強！' : '太難的話，可以在選單開啟兒童模式', DIM]],
+          ['提示：用力捏到門檻以上，再撐住 ' + this.holdTime + ' 秒', DIM],
+          [{ kids: '多練習幾次，握力會越來越強！', normal: '太難的話，可以在選單切換成兒童模式',
+             hard: '困難模式的門檻比較高，可以先在一般模式練習' }[this.modeName], DIM]],
           [['retry', '再挑戰'], ['menu', '選單']]);
       } else if (this.state === 'ending') {
         var rx = W - 380, bests = this.save.best[this.mode()], total = 0, maxPeak = 0;
