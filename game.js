@@ -369,7 +369,6 @@
     this.sfx = new Sfx(env.audio);
     this.save = this.loadSave();
     this.modeName = this.save.mode;
-    this.selected = this.unlocked();
     this.time = 0;
     this.sim = 0;
     this.held = false;        // 按住螢幕 / 滑鼠 / 空白鍵（模擬握力）
@@ -379,7 +378,7 @@
     this.menuArts = EGGS.map(function (_, i) { return new EggArt(i + 1); });
     this.miniArt = new EggArt(3);
     this.buttons = [];
-    this.startLevel(this.selected, false);
+    this.startLevel(1, false);
     this.state = 'menu';
   }
   var G = Game.prototype;
@@ -550,13 +549,13 @@
   };
   G.confirm = function () {   // 每個畫面的「預設動作」
     var s = this.state;
-    if (s === 'menu') this.startLevel(this.selected);
+    if (s === 'menu') this.startLevel(1);   // 一律從第 1 關開始（不能選關）
     else if (s === 'intro') this.state = 'play';
     else if (s === 'clear') this.startLevel(this.level + 1);
     else if (s === 'fail') this.startLevel(this.level);
-    else if (s === 'ending') { this.selected = this.unlocked(); this.state = 'menu'; }
+    else if (s === 'ending') this.toMenu();
   };
-  G.toMenu = function () { this.selected = Math.min(this.level, this.unlocked()); this.state = 'menu'; };
+  G.toMenu = function () { this.startLevel(1, false); this.state = 'menu'; };
 
   G.updatePlay = function (dt, force) {
     var thr = this.thr;
@@ -613,12 +612,6 @@
   G.tap = function (x, y) {   // 點一下（click）。回傳 true 表示有按到按鈕
     var id = this.hit(x, y);
     if (!id) {
-      if (this.state === 'menu') {   // 點蛋選關
-        for (var i = 0; i < LEVELS; i++) {
-          var ex = 70 + i * 91;
-          if (Math.abs(x - ex) < 42 && y > 280 && y < GROUND_Y + 10 && i + 1 <= this.unlocked()) { this.selected = i + 1; return true; }
-        }
-      }
       return false;
     }
     if (id === 'grip') this.env.connectGrip(false);
@@ -626,7 +619,6 @@
     else if (id === 'mode') this.cycleMode();
     else if (id === 'music') this.toggleMusic();
     else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'tomenu-end') this.confirm();
-    else if (id === 'replay') this.startLevel(this.level);
     else if (id === 'menu') this.toMenu();
     return true;
   };
@@ -637,16 +629,12 @@
     var s = this.state;
     if (code === 'Escape') { if (s !== 'menu') this.toMenu(); }
     else if (code === 'Enter') this.confirm();
-    else if (s === 'menu' && code === 'ArrowLeft') this.selected = Math.max(1, this.selected - 1);
-    else if (s === 'menu' && code === 'ArrowRight') this.selected = Math.min(this.unlocked(), this.selected + 1);
     else if (s === 'menu' && code === 'KeyK') this.cycleMode();
     else if (code === 'KeyM') this.toggleMusic();
-    else if (s === 'clear' && code === 'KeyR') this.startLevel(this.level);
   };
   G.cycleMode = function () {
     this.modeName = MODE_ORDER[(MODE_ORDER.indexOf(this.modeName) + 1) % MODE_ORDER.length];
-    this.selected = Math.min(this.selected, this.unlocked());
-    this.saveData(); this.startLevel(this.selected, false); this.state = 'menu';
+    this.saveData(); this.startLevel(1, false); this.state = 'menu';
   };
   G.toggleMusic = function () {
     this.save.music = !this.save.music; this.saveData();
@@ -782,30 +770,28 @@
   };
   G.drawMenu = function (ctx) {
     var self = this;
-    this.drawSky(ctx, this.selected);
+    this.drawSky(ctx, 1);
     this.panel(ctx, 40, 18, W - 80, 170, 0.66);
     this.text(ctx, '捏蛋大挑戰', 72, GOLD, W / 2, 70);
     var c = this.cfg();
     this.text(ctx, '握力超過門檻、撐住 ' + c.hold + ' 秒，就能把蛋捏破！每關 ' + c.attempts + ' 次機會', 24, TEXT, W / 2, 135);
-    this.text(ctx, '點蛋選關卡　·　' + c.label + (c.ratio !== 1 ? '：握力門檻 ×' + c.ratio : ''), 17, c.color, W / 2, 168);
+    this.text(ctx, c.label + (c.ratio !== 1 ? '：握力門檻 ×' + c.ratio : ''), 17, c.color, W / 2, 168);
     this.drawButton(ctx, this.button('music', W - 200, 30, 148, 40, this.save.music ? '♪ 音樂：開' : '♪ 音樂：關', { on: this.save.music }));
     this.menuArts.forEach(function (art, i) {
       var lv = i + 1, x = 70 + i * 91, h = 24 + art.d.px * 0.32, locked = lv > self.unlocked();
       art.draw(ctx, x, GROUND_Y, h, 0, 0, locked);
       if (locked) self.text(ctx, '?', 26, DIM, x, GROUND_Y - h / 2);
-      if (lv === self.selected) {
-        var ay = GROUND_Y - h - 22 + Math.sin(self.time * 5) * 5;
-        polygon(ctx, [[x - 12, ay - 12], [x + 12, ay - 12], [x, ay + 2]], rgb(GOLD));
-      }
-      if (self.save.best[self.mode()][String(lv)]) self.text(ctx, '★', 18, GOLD, x, GROUND_Y + 18);
+      if (self.save.best[self.mode()][String(lv)]) self.text(ctx, '★', 20, GOLD, x, GROUND_Y - h - 14);   // 破過的關卡
     });
-    var d = EGGS[this.selected - 1], best = this.save.best[this.mode()][String(this.selected)];
+    var furthest = 0;   // 這個難度最遠破到第幾關（選單上的蛋只是進度展示，不能點選）
+    for (var lv = 1; lv <= LEVELS; lv++) if (this.save.best[this.mode()][String(lv)]) furthest = lv;
     this.panel(ctx, 140, 200, W - 280, 58, 0.66);
-    this.text(ctx, '第 ' + this.selected + ' 關　' + d.name + '　需要握力 ' + fmt(threshold(this.selected, this.modeName)), 24, TEXT, W / 2, 218);
-    this.text(ctx, best ? '最佳 ' + best.time.toFixed(2) + ' 秒（最高握力 ' + fmt(best.peak) + '）' : '還沒挑戰過', 16, DIM, W / 2, 244);
+    this.text(ctx, '從第 1 關麻雀蛋開始，一路挑戰到恐龍蛋', 24, TEXT, W / 2, 218);
+    this.text(ctx, furthest === LEVELS ? '已經全部捏破過了！再挑戰一次？'
+      : furthest ? '最遠破到第 ' + furthest + ' 關（' + EGGS[furthest - 1].name + '）' : '還沒挑戰過', 16, furthest === LEVELS ? GOLD : DIM, W / 2, 244);
     var g = this.env.grip, bw = 230, gap = 16, x0 = (W - (bw * 3 + gap * 2)) / 2, by = GROUND_Y + 20;
     this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { on: this.modeName !== 'normal' }));
-    this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '開始第 ' + this.selected + ' 關', { primary: true }));
+    this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '從第 1 關開始', { primary: true }));
     var gl = g.connected ? '✔ 已連線握力球' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
     this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, { on: g.connected }));
     if (!g.connected && this.env.bluetoothSupported) {   // 名稱篩選找不到時，列出全部藍牙裝置讓使用者自己挑
@@ -849,7 +835,7 @@
           ['用時 ' + this.clearTime.toFixed(2) + ' 秒' + (this.newBest ? '　新紀錄！' : ''), TEXT],
           ['最高握力 ' + this.levelPeak.toFixed(1) + '　·　第 ' + (this.maxAttempts - this.attempts + 1) + ' 次成功', TEXT],
           ['下一關：' + EGGS[this.level].name + '（需要 ' + fmt(threshold(this.level + 1, this.modeName)) + '）', DIM]],
-          [['next', '下一關'], ['replay', '再玩這關'], ['menu', '選單']]);
+          [['next', '下一關'], ['menu', '選單']]);
       } else if (this.state === 'fail') {
         this.drawResult(ctx, '蛋還完好如初…', RED, [
           ['這關最高握力 ' + this.levelPeak.toFixed(1) + '　/　需要 ' + fmt(this.thr), TEXT],
