@@ -515,7 +515,8 @@
       }
       return false;
     }
-    if (id === 'grip') this.env.connectGrip();
+    if (id === 'grip') this.env.connectGrip(false);
+    else if (id === 'gripall') this.env.connectGrip(true);
     else if (id === 'kids') this.toggleKids();
     else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'tomenu-end') this.confirm();
     else if (id === 'replay') this.startLevel(this.level);
@@ -689,6 +690,10 @@
     this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '開始第 ' + this.selected + ' 關', { primary: true }));
     var gl = g.connected ? '✔ 已連線握力球' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
     this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, { on: g.connected }));
+    if (!g.connected && this.env.bluetoothSupported) {   // 名稱篩選找不到時，列出全部藍牙裝置讓使用者自己挑
+      this.text(ctx, '找不到握力球？', 15, DIM, W - 80, 196);
+      this.drawButton(ctx, this.button('gripall', W - 150, 210, 140, 44, '列出所有裝置'));
+    }
   };
   G.drawIntro = function (ctx) {
     var d = this.art.d, g = this.art.geometry(GROUND_Y, d.px, 0);

@@ -25,7 +25,6 @@
   'use strict';
   var SERVICE = '0000ffb0-0000-1000-8000-00805f9b34fb';
   var FORCE_CHAR = '0000ffb2-0000-1000-8000-00805f9b34fb';
-  var NAME_PREFIX = 'weixin-';
   var W = EggGame.W, H = EggGame.H;
   var canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
   var scale = 1, dpr = 1;
@@ -73,10 +72,14 @@
       retryTimer = setTimeout(reconnect, 3000);
     });
   }
-  function connectGrip() {   // 必須在使用者觸碰的事件裡呼叫
+  function connectGrip(showAll) {   // 必須在使用者觸碰的事件裡呼叫
     if (!bt) { grip.status = '這個瀏覽器不支援藍牙：iPad 請安裝 Bluefy 並用它開啟本網址'; return; }
     if (grip.connected) return;
-    navigator.bluetooth.requestDevice({ filters: [{ namePrefix: NAME_PREFIX }], optionalServices: [SERVICE] })
+    grip.status = '請在跳出的清單選擇 weixin- 開頭的握力球…';
+    // 名稱 或 廣播中的服務代碼 任一符合就列出；showAll 時完全不篩選
+    var opts = showAll ? { acceptAllDevices: true, optionalServices: [SERVICE] }
+                       : { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
+    navigator.bluetooth.requestDevice(opts)
       .then(function (dev) {
         device = dev;
         dev.addEventListener('gattserverdisconnected', function () {
@@ -87,7 +90,10 @@
         return attach(dev);
       })
       .catch(function (e) {
-        grip.status = (e && e.name === 'NotFoundError') ? '沒有選擇握力球（捏一下喚醒它再試）' : '連線失敗：' + (e && e.message || e);
+        var why = e ? (e.name || '') + ' ' + (e.message || e) : '未知錯誤';
+        grip.status = e && e.name === 'NotFoundError'
+          ? '沒有選到握力球（' + why + '）：捏一下喚醒它，或按「列出所有裝置」'
+          : '連線失敗：' + why;
       });
   }
 
