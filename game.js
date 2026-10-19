@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-12';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-13';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -36,14 +36,18 @@
     { name: '鴯鶓蛋', px: 198, aspect: 0.68, k: 0.10, base: [36, 78, 62], pattern: 'grain', spot: [62, 108, 88], crack: [226, 232, 212], size: '約 13 公分', fact: '鴯鶓蛋是深綠色的，而且是鴯鶓爸爸負責孵蛋。' },
     { name: '鴕鳥蛋', px: 228, aspect: 0.82, k: 0.06, base: [240, 228, 196], pattern: 'pits', spot: [200, 184, 148], crack: [110, 95, 70], size: '約 15 公分', fact: '鴕鳥蛋是現存鳥類最大的蛋，一顆約等於 24 顆雞蛋。' },
     { name: '象鳥蛋', px: 288, aspect: 0.76, k: 0.08, base: [236, 222, 196], pattern: 'stain', spot: [214, 196, 160], crack: [105, 90, 70], size: '約 30 公分', fact: '象鳥是已滅絕的馬達加斯加巨鳥，一顆蛋約等於 150 顆雞蛋。' },
-    { name: '恐龍蛋', px: 330, aspect: 0.72, k: 0.10, base: [142, 122, 100], pattern: 'fossil', spot: [104, 88, 72], crack: [255, 170, 60], size: '大的超過 40 公分', fact: '恐龍蛋化石在世界各地都有發現，有些裡面還保存著小恐龍胚胎。' }
+    { name: '恐龍蛋', px: 330, aspect: 0.72, k: 0.10, base: [142, 122, 100], pattern: 'fossil', spot: [104, 88, 72], crack: [255, 170, 60], size: '大的超過 40 公分', fact: '恐龍蛋化石在世界各地都有發現，有些裡面還保存著小恐龍胚胎。' },
+    // 特別關：破完 10 關才會出現
+    { name: '奇異鳥蛋', px: 250, aspect: 0.64, k: 0.07, base: [240, 241, 230], pattern: 'faint', spot: [222, 226, 210], crack: [110, 120, 100], size: '約 12 公分', fact: '奇異鳥蛋大約是媽媽體重的 1/5，以身體比例來說是最大的鳥蛋。' }
   ];
-  var LEVELS = EGGS.length;
+  var LEVELS = 10, SPECIAL = 11;   // 一般 10 關；第 11 關是特別關（握力 60）
   var SKIES = [[[150, 200, 240], [215, 235, 250]], [[140, 190, 235], [210, 232, 245]], [[130, 180, 230], [205, 225, 240]],
     [[120, 170, 225], [230, 215, 200]], [[110, 150, 210], [240, 200, 170]], [[95, 125, 190], [240, 180, 150]],
-    [[70, 90, 150], [225, 150, 130]], [[55, 65, 120], [215, 130, 100]], [[50, 40, 80], [200, 100, 70]], [[40, 22, 40], [230, 90, 40]]];
+    [[70, 90, 150], [225, 150, 130]], [[55, 65, 120], [215, 130, 100]], [[50, 40, 80], [200, 100, 70]], [[40, 22, 40], [230, 90, 40]],
+    [[8, 14, 38], [36, 58, 96]]];   // 特別關：紐西蘭的夜晚（奇異鳥是夜行性）
   var GROUNDS = [[150, 118, 88], [145, 112, 84], [140, 108, 80], [132, 100, 76], [124, 94, 72],
-    [116, 88, 68], [104, 80, 64], [92, 72, 60], [80, 62, 54], [64, 46, 42]];
+    [116, 88, 68], [104, 80, 64], [92, 72, 60], [80, 62, 54], [64, 46, 42], [34, 48, 36]];
+  function levelLabel(level) { return level === SPECIAL ? '特別關' : '第 ' + level + ' 關'; }
 
   // ---------- 小工具 ----------
   function threshold(level, mode) {
@@ -489,7 +493,7 @@
     this.texts = []; this.particles = [];
     this.screenShake = 0; this.flash = 0;
     this.lastState = 'menu'; this.stateT = 0; this.btnArmed = false;
-    this.menuArts = EGGS.map(function (_, i) { return new EggArt(i + 1); });
+    this.menuArts = EGGS.slice(0, LEVELS).map(function (_, i) { return new EggArt(i + 1); });
     this.miniArt = new EggArt(3);
     this.buttons = [];
     this.startLevel(1, false);
@@ -560,11 +564,11 @@
     this.state = 'smash'; this.smashT = 0; this.animT = 0;
     this.screenShake = 0.45; this.flash = 0.18;
     this.sfx.play('smash');
-    if (this.music) this.music.duck(this.level === LEVELS ? 3.0 : 1.6);
+    if (this.music) this.music.duck(this.level >= LEVELS ? 3.0 : 1.6);
     this.clearTime = this.time - (this.levelStart === null ? this.time : this.levelStart);
     var g = this.art.geometry(GROUND_Y, d.px, 1.0);
     this.smashGeom = g;
-    var final = this.level === LEVELS, n = 26 + this.level * 3;
+    var final = this.level >= LEVELS, n = 26 + Math.min(this.level, LEVELS) * 3;
     for (var i = 0; i < n; i++) {
       var v = uniform(Math.random, -0.95, final ? 0.2 : 0.95), u = uniform(Math.random, -0.9, 0.9);
       var x = EGG_X + u * halfWidth(v, d.k) * g.rw, y = g.cy + v * g.rh;
@@ -580,7 +584,8 @@
         color: rgb(shade(d.base, uniform(Math.random, -0.15, 0.1))), edge: rgb(shade(d.base, -0.55))
       });
     }
-    if (final) { this.burst(EGG_X, g.cy, ORANGE, 60, 520, 5); this.burst(EGG_X, g.cy, GOLD, 40, 380, 5); }
+    if (this.level === SPECIAL) { this.burst(EGG_X, g.cy, [255, 240, 170], 60, 520, 5); this.burst(EGG_X, g.cy, [140, 220, 255], 40, 380, 5); }
+    else if (final) { this.burst(EGG_X, g.cy, ORANGE, 60, 520, 5); this.burst(EGG_X, g.cy, GOLD, 40, 380, 5); }
     else { this.burst(EGG_X, g.cy, YOLK, 26, 420, 7); this.burst(EGG_X, g.cy, WHITE_GOO, 26, 380, 6); }
     this.splat = [];
     for (i = 0; i < 24; i++) this.splat.push([i / 24 * Math.PI * 2, uniform(Math.random, 0.75, 1.15)]);
@@ -592,7 +597,7 @@
     if (this.newBest) this.save.best[this.mode()][key] = record;
     this.save.unlocked[this.mode()] = Math.max(this.save.unlocked[this.mode()], Math.min(LEVELS, this.level + 1));
     this.saveData();
-    this.state = this.level === LEVELS ? 'ending' : 'clear';
+    this.state = this.level === SPECIAL ? 'ending2' : this.level === LEVELS ? 'ending' : 'clear';
     this.sfx.play('win');
   };
 
@@ -649,9 +654,9 @@
         s.x += s.vx * pdt; s.y += s.vy * pdt; s.vy += 1400 * pdt; s.rot += s.vr * pdt;
         if (s.y > GROUND_Y - 4) { s.y = GROUND_Y - 4; s.vy = -s.vy * 0.25; s.vx *= 0.6; s.vr *= 0.5; }
       }
-      if (this.level === LEVELS && this.smashT > 0.55 && !this.pipped) { this.pipped = true; this.sfx.play('pip'); }
-      if (this.smashT > (this.level === LEVELS ? 3.0 : 2.3)) { this.pipped = false; this.finishLevel(); }
-    } else if (this.state === 'ending') {
+      if (this.level >= LEVELS && this.smashT > 0.55 && !this.pipped) { this.pipped = true; this.sfx.play('pip'); }
+      if (this.smashT > (this.level >= LEVELS ? 3.0 : 2.3)) { this.pipped = false; this.finishLevel(); }
+    } else if (this.state === 'ending' || this.state === 'ending2') {
       this.animT += dt; this.confetti();
     }
   };
@@ -661,7 +666,7 @@
     if (force < START_FORCE) this.btnArmed = true;
     else if (this.btnArmed && force >= CONFIRM_FORCE) {
       this.btnArmed = false;
-      if (['menu', 'intro', 'clear', 'fail', 'ending'].indexOf(this.state) >= 0 && this.stateT > CONFIRM_DELAY) this.confirm();
+      if (['menu', 'intro', 'clear', 'fail', 'ending', 'ending2'].indexOf(this.state) >= 0 && this.stateT > CONFIRM_DELAY) this.confirm();
     }
   };
   G.confirm = function () {   // 每個畫面的「預設動作」
@@ -670,7 +675,8 @@
     else if (s === 'intro') this.state = 'play';
     else if (s === 'clear') this.startLevel(this.level + 1);
     else if (s === 'fail') this.startLevel(this.level);
-    else if (s === 'ending') this.toMenu();
+    else if (s === 'ending') this.startLevel(SPECIAL);   // 破完 10 關：捏一下挑戰特別關
+    else if (s === 'ending2') this.toMenu();
   };
   G.toMenu = function () { this.startLevel(1, false); this.state = 'menu'; };
 
@@ -737,7 +743,8 @@
     if (id === 'grip') this.env.connectGrip();
     else if (id === 'mode') this.cycleMode();
     else if (id === 'music') this.toggleMusic();
-    else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'tomenu-end') this.confirm();
+    else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'special') this.confirm();
+    else if (id === 'tomenu-end') this.toMenu();
     else if (id === 'menu') this.toMenu();
     return true;
   };
@@ -806,9 +813,35 @@
     var gr = GROUNDS[level - 1];
     ctx.fillStyle = rgb(gr); ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
     ctx.fillStyle = rgb(shade(gr, 0.25)); ctx.fillRect(0, GROUND_Y - 1, W, 3);
+    if (level === SPECIAL) this.paintNight(ctx);
     if (level === LEVELS) {   // 史前火山
       polygon(ctx, [[620, GROUND_Y], [760, 250], [820, 250], [960, GROUND_Y]], 'rgb(60,30,35)');
       polygon(ctx, [[760, 250], [820, 250], [800, 275], [775, 270]], 'rgb(255,110,40)');
+    }
+  };
+  G.paintNight = function (ctx) {   // 紐西蘭夜晚：星空、月亮、遠山、樹蕨剪影
+    var r = mulberry32(2024), i;
+    for (i = 0; i < 160; i++) {
+      var sx = r() * W, sy = r() * (GROUND_Y - 120), sr = r() < 0.1 ? 1.6 : 0.5 + r() * 0.8;
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.35 + r() * 0.6).toFixed(2) + ')'; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+    }
+    var mg = ctx.createRadialGradient(790, 90, 0, 790, 90, 90);
+    mg.addColorStop(0, 'rgba(255,250,220,0.35)'); mg.addColorStop(1, 'rgba(255,250,220,0)');
+    ctx.fillStyle = mg; ctx.fillRect(700, 0, 180, 180);
+    ellipse(ctx, 790, 90, 30, 30, 'rgb(250,246,225)'); ellipse(ctx, 780, 84, 6, 6, 'rgb(230,226,205)'); ellipse(ctx, 800, 100, 4, 4, 'rgb(230,226,205)');
+    polygon(ctx, [[0, GROUND_Y], [0, 330], [120, 290], [260, 320], [380, 270], [520, 315], [660, 280], [820, 310], [960, 285], [960, GROUND_Y]], 'rgb(22,34,46)');
+    var self = this;
+    [[60, 1.0], [170, 0.75], [640, 0.85], [760, 1.1], [900, 0.8]].forEach(function (f) { self.treeFern(ctx, f[0], GROUND_Y, f[1]); });
+  };
+  G.treeFern = function (ctx, x, gy, k) {   // 樹蕨剪影：細長樹幹＋往下彎的葉子
+    var top = gy - 170 * k;
+    ctx.strokeStyle = 'rgb(14,22,20)'; ctx.lineCap = 'round';
+    ctx.lineWidth = 7 * k; ctx.beginPath(); ctx.moveTo(x, gy); ctx.quadraticCurveTo(x + 8 * k, gy - 90 * k, x, top); ctx.stroke();
+    ctx.lineWidth = 4 * k;
+    for (var i = 0; i < 9; i++) {
+      var a = -Math.PI / 2 + (i - 4) * 0.42, len = 80 * k;
+      var ex = x + Math.cos(a) * len, ey = top + Math.sin(a) * len * 0.5 + 34 * k;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.quadraticCurveTo(x + Math.cos(a) * len * 0.6, top + Math.sin(a) * len * 0.75, ex, ey); ctx.stroke();
     }
   };
   G.drawShadow = function (ctx, cx, rw) { ellipse(ctx, cx, GROUND_Y + 2, rw * 1.3, 12, 'rgba(0,0,0,0.27)'); };
@@ -823,7 +856,7 @@
     this.art.draw(ctx, cx, GROUND_Y, d.px, squash, this.crack, false);
   };
   G.drawSmash = function (ctx) {
-    var d = this.art.d, g = this.smashGeom, t = this.animT, final = this.level === LEVELS, i;
+    var d = this.art.d, g = this.smashGeom, t = this.animT, final = this.level >= LEVELS, i;
     if (!final) {   // 蛋白與蛋黃濺在地上
       var grow = 1 - Math.pow(1 - clamp(t / 0.35), 3), r = g.rw * 2.4 * grow;
       if (r > 2) {
@@ -837,8 +870,11 @@
       this.drawShadow(ctx, EGG_X, g.rw);
       var g0 = this.art.geometry(GROUND_Y, d.px, 0), cupTop = g0.cy + 0.2 * g0.rh;
       var pop = t > 0.45 ? easeOutBack(clamp((t - 0.45) / 0.5)) : 0;
-      if (pop > 0) drawDino(ctx, EGG_X, cupTop + 45 + (1 - pop) * 160, 1.3 * Math.max(0.01, pop), this.time, d.base, cupTop + 40);
-      drawCup(ctx, this.art, EGG_X, GROUND_Y, d.px);
+      if (this.level === SPECIAL) this.drawKiwiHatch(ctx, t, cupTop);
+      else {
+        if (pop > 0) drawDino(ctx, EGG_X, cupTop + 45 + (1 - pop) * 160, 1.3 * Math.max(0.01, pop), this.time, d.base, cupTop + 40);
+        drawCup(ctx, this.art, EGG_X, GROUND_Y, d.px);
+      }
     }
     for (i = 0; i < this.shards.length; i++) {
       var s = this.shards[i], c = Math.cos(s.rot), si = Math.sin(s.rot);
@@ -849,6 +885,37 @@
       this.text(ctx, final ? '喀啦！' : '啪嚓！', 80, GOLD, EGG_X + 150, g.cy - g.rh * 0.6 - 30,
         { angle: 8 * Math.PI / 180, scale: Math.max(0.05, k), shadowColor: 'rgb(60,30,20)', shadowOff: 4 });
     }
+  };
+  // Kiwi（Kiwi Trip 的角色正面圖）：從蛋殼裡冒出來，跳到蛋殼前面落地，之後輕輕彈跳
+  G.drawKiwiHatch = function (ctx, t, cupTop) {
+    var KH = 190, landX = EGG_X + 10, rise = t > 0.45 ? easeOutBack(clamp((t - 0.45) / 0.5)) : 0;
+    var jump = clamp((t - 1.25) / 0.55);
+    if (jump <= 0) {   // 還在蛋殼裡：只露出上半身
+      if (rise > 0) this.drawKiwi(ctx, EGG_X, cupTop + 70 + (1 - rise) * 150, KH, cupTop + 30);
+      drawCup(ctx, this.art, EGG_X, GROUND_Y, this.art.d.px);
+      return;
+    }
+    drawCup(ctx, this.art, EGG_X, GROUND_Y, this.art.d.px);
+    var fx = lerp(EGG_X, landX, jump), fy = lerp(cupTop + 70, GROUND_Y + 12, jump) - Math.sin(jump * Math.PI) * 120;
+    var hop = jump >= 1 ? Math.abs(Math.sin((t - 1.8) * 3.2)) * 14 : 0, sq = jump >= 1 ? 1 - Math.max(0, Math.cos((t - 1.8) * 6.4)) * 0.04 : 1;
+    ellipse(ctx, fx, GROUND_Y + 10, 70 * (1 - hop / 40), 12, 'rgba(0,0,0,0.3)');
+    this.drawKiwi(ctx, fx, fy - hop, KH * sq);
+  };
+  G.drawKiwi = function (ctx, x, footY, h, clipY) {
+    var img = this.env.kiwiImage;
+    ctx.save();
+    if (clipY !== undefined) { ctx.beginPath(); ctx.rect(x - 400, clipY - 800, 800, 800); ctx.clip(); }
+    if (img && (img.naturalWidth || img.width)) {
+      var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height, w = h * iw / ih;
+      ctx.drawImage(img, x - w / 2, footY - h, w, h);
+    } else {   // 圖還沒載入：先畫一個簡單的 Kiwi
+      ellipse(ctx, x, footY - h * 0.45, h * 0.42, h * 0.45, 'rgb(170,118,82)');
+      ellipse(ctx, x, footY - h * 0.38, h * 0.3, h * 0.3, 'rgb(205,170,135)');
+      ellipse(ctx, x - h * 0.15, footY - h * 0.62, h * 0.025, h * 0.025, 'rgb(20,20,20)');
+      ellipse(ctx, x + h * 0.15, footY - h * 0.62, h * 0.025, h * 0.025, 'rgb(20,20,20)');
+      polygon(ctx, [[x - h * 0.05, footY - h * 0.66], [x + h * 0.05, footY - h * 0.66], [x, footY - h * 0.48]], 'rgb(235,232,222)');
+    }
+    ctx.restore();
   };
   G.drawGauge = function (ctx, force) {
     var thr = this.thr, x = W - 110, y = 90, w = 40, h = 300, top = thr * 1.4;
@@ -873,7 +940,7 @@
   };
   G.drawHud = function (ctx) {
     var d = this.art.d;
-    this.text(ctx, '第 ' + this.level + ' 關　' + d.name, 26, TEXT, EGG_X, 30);
+    this.text(ctx, levelLabel(this.level) + '　' + d.name, 26, this.level === SPECIAL ? GOLD : TEXT, EGG_X, 30);
     if (this.modeName !== 'normal') this.text(ctx, this.cfg().label, 18, this.cfg().color, EGG_X, 58);
     this.text(ctx, '機會', 18, TEXT, 36, 30);
     for (var i = 0; i < this.maxAttempts; i++) this.miniArt.draw(ctx, 78 + i * 30, 44, 28, 0, 0, i >= this.attempts);
@@ -921,7 +988,8 @@
     for (var lv = 1; lv <= LEVELS; lv++) if (this.save.best[this.mode()][String(lv)]) furthest = lv;
     this.panel(ctx, 140, 200, W - 280, 58, 0.66);
     this.text(ctx, '從第 1 關麻雀蛋開始，一路挑戰到恐龍蛋', 24, TEXT, W / 2, 218);
-    this.text(ctx, furthest === LEVELS ? '已經全部捏破過了！再挑戰一次？'
+    var sp = this.save.best[this.mode()][String(SPECIAL)];
+    this.text(ctx, sp ? '連特別關的奇異鳥蛋都捏破了！再挑戰一次？' : furthest === LEVELS ? '已經全部捏破過了！再挑戰一次？'
       : furthest ? '最遠破到第 ' + furthest + ' 關（' + EGGS[furthest - 1].name + '）' : '還沒挑戰過', 16, furthest === LEVELS ? GOLD : DIM, W / 2, 244);
     var g = this.env.grip, bw = 230, gap = 16, x0 = (W - (bw * 3 + gap * 2)) / 2, by = GROUND_Y + 20;
     this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { fill: this.cfg().fill, ink: this.cfg().ink }));
@@ -934,7 +1002,7 @@
     this.drawShadow(ctx, EGG_X, g.rw);
     this.art.draw(ctx, EGG_X, GROUND_Y, d.px, 0, 0, false, easeOutBack(clamp(this.introT / 0.5)));
     this.panel(ctx, W / 2 - 330, 40, 660, 170);
-    this.text(ctx, '第 ' + this.level + ' 關　' + d.name, 48, GOLD, W / 2, 82);
+    this.text(ctx, levelLabel(this.level) + '　' + d.name, 48, GOLD, W / 2, 82);
     this.text(ctx, '需要握力 ' + fmt(this.thr) + '，撐住 ' + this.holdTime + ' 秒', 26, TEXT, W / 2, 135);
     this.text(ctx, d.fact, 18, DIM, W / 2, 178);
     if (this.introT > 1.0) this.drawButton(ctx, this.button('go', W / 2 - 110, GROUND_Y + 30, 220, 46, '開始（或直接捏下去）', { primary: true }));
@@ -980,10 +1048,20 @@
         for (var lv = 1; lv <= LEVELS; lv++) { var b = bests[String(lv)]; if (b) { total += b.time; maxPeak = Math.max(maxPeak, b.peak); } }
         this.panel(ctx, rx, 90, 340, 300, 0.8);
         this.text(ctx, '全部捏破！', 48, GOLD, rx + 170, 130);
-        this.text(ctx, '孵出小恐龍了！', 26, GREEN, rx + 170, 178);
-        this.text(ctx, '10 關最佳時間合計 ' + total.toFixed(1) + ' 秒', 18, TEXT, rx + 170, 222);
-        this.text(ctx, '最強握力 ' + maxPeak.toFixed(1), 18, TEXT, rx + 170, 252);
-        this.drawButton(ctx, this.button('tomenu-end', rx + 70, 310, 200, 46, '回選單', { primary: true }));
+        this.text(ctx, '孵出小恐龍了！', 26, GREEN, rx + 170, 172);
+        this.text(ctx, '10 關最佳時間合計 ' + total.toFixed(1) + ' 秒・最強握力 ' + maxPeak.toFixed(1), 16, TEXT, rx + 170, 208);
+        this.text(ctx, '★ 特別關出現了：奇異鳥蛋', 20, GOLD, rx + 170, 246);
+        this.text(ctx, '需要握力 ' + fmt(threshold(SPECIAL, this.modeName)) + '，敢挑戰嗎？（捏一下開始）', 15, DIM, rx + 170, 274);
+        this.drawButton(ctx, this.button('special', rx + 14, 318, 172, 46, '挑戰特別關', { primary: true }));
+        this.drawButton(ctx, this.button('tomenu-end', rx + 196, 318, 130, 46, '回選單'));
+      } else if (this.state === 'ending2') {
+        var rx2 = W - 380;
+        this.panel(ctx, rx2, 90, 340, 300, 0.8);
+        this.text(ctx, '特別關完成！', 44, GOLD, rx2 + 170, 132);
+        this.text(ctx, '孵出奇異鳥 Kiwi 了！', 26, GREEN, rx2 + 170, 180);
+        this.text(ctx, '用時 ' + this.clearTime.toFixed(2) + ' 秒・最高握力 ' + this.levelPeak.toFixed(1), 18, TEXT, rx2 + 170, 226);
+        this.text(ctx, '你的握力是真正的大力士！', 18, DIM, rx2 + 170, 260);
+        this.drawButton(ctx, this.button('tomenu-end', rx2 + 70, 318, 200, 46, '回選單', { primary: true }));
       }
     }
     this.drawStatus(ctx);
@@ -991,7 +1069,7 @@
     if (this.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (0.86 * this.flash / 0.18) + ')'; ctx.fillRect(0, 0, W, H); }
   };
 
-  var api = { VERSION: VERSION, Game: Game, W: W, H: H, EGGS: EGGS, threshold: threshold, LEVELS: LEVELS };
+  var api = { VERSION: VERSION, Game: Game, W: W, H: H, EGGS: EGGS, threshold: threshold, LEVELS: LEVELS, SPECIAL: SPECIAL };
   root.EggGame = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : this);

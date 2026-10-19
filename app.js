@@ -147,8 +147,10 @@
   }
 
   function makeCanvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  var kiwiImage = new Image();   // 特別關孵出的 Kiwi（Kiwi Trip 角色的正面圖）
+  kiwiImage.src = 'kiwi.png?t=' + Date.now();
   var game = new EggGame.Game({ grip: grip, storage: storage, audio: null, connectGrip: connectGrip,
-                                bluetoothSupported: bt, makeCanvas: makeCanvas });
+                                bluetoothSupported: bt, makeCanvas: makeCanvas, kiwiImage: kiwiImage });
 
   // ---------- 音效：iOS 要在第一次觸碰時建立 ----------
   var audioReady = false;
