@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-10';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-11';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -467,6 +467,7 @@
     this.art = new EggArt(level, Math.floor(Math.random() * 9999));
     this.attempts = this.maxAttempts;
     this.inAttempt = false;
+    this.waitRelease = false;   // 一次捏結束後，要等握力真正放開才算下一次
     this.hold = 0; this.crack = 0; this.visForce = 0;
     this.attemptPeak = 0; this.levelPeak = 0; this.levelStart = null;
     this.failTimer = null;
@@ -604,7 +605,10 @@
     }
     // 只看握力數值切出「一次捏」：超過 START_FORCE 開始；完全放開，或從高處明顯鬆手才算結束
     var peakEnd = null;
-    if (!this.inAttempt && force >= START_FORCE) {
+    // 從高處鬆手時，握力降到門檻 30% 就判定這次結束，但那時通常還在 3 以上；
+    // 若不等完全放開，同一次放手會被當成「又捏了一次」再扣一次機會
+    if (this.waitRelease && force <= RELEASE_FORCE) this.waitRelease = false;
+    if (!this.inAttempt && !this.waitRelease && force >= START_FORCE) {
       this.inAttempt = true; this.attemptPeak = 0;
       if (this.levelStart === null) this.levelStart = this.time;
     }
@@ -612,7 +616,7 @@
       this.attemptPeak = Math.max(this.attemptPeak, force);
       this.levelPeak = Math.max(this.levelPeak, force);
       var letGo = Math.max(2, thr * 0.3);
-      if (force <= RELEASE_FORCE || (this.attemptPeak > letGo * 1.3 && force < letGo)) { this.inAttempt = false; peakEnd = this.attemptPeak; }
+      if (force <= RELEASE_FORCE || (this.attemptPeak > letGo * 1.3 && force < letGo)) { this.inAttempt = false; this.waitRelease = true; peakEnd = this.attemptPeak; }
     }
     // 在門檻以上累積撐住的時間；稍微掉下來時慢慢退
     if (this.inAttempt && force >= thr) this.hold += dt;
