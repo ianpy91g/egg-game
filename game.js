@@ -6,6 +6,7 @@
 (function (root) {
   'use strict';
 
+  var VERSION = '2026.10.19-4';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -755,6 +756,7 @@
   G.drawStatus = function (ctx) {
     var g = this.env.grip, msg = g.status;
     this.text(ctx, msg, 16, g.connected ? GREEN : DIM, 14, H - 18, { align: 'left', shadow: false });
+    if (this.state === 'menu') this.text(ctx, '版本 ' + VERSION, 14, DIM, W - 14, H - 18, { align: 'right', shadow: false });
   };
   G.drawEffects = function (ctx) {
     var i;
@@ -859,7 +861,7 @@
     if (this.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (0.86 * this.flash / 0.18) + ')'; ctx.fillRect(0, 0, W, H); }
   };
 
-  var api = { Game: Game, W: W, H: H, EGGS: EGGS, threshold: threshold, LEVELS: LEVELS };
+  var api = { VERSION: VERSION, Game: Game, W: W, H: H, EGGS: EGGS, threshold: threshold, LEVELS: LEVELS };
   root.EggGame = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : this);

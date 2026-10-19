@@ -25,6 +25,8 @@
 ## 檔案
 
 - `game.js`：遊戲本體（畫圖、邏輯、音效），不碰 DOM，可在 Node 測試
-- `index.html`：畫面縮放、觸控、Web Bluetooth（服務 `FFB0`、握力通道 `FFB2`）、存檔（localStorage）
+- `index.html`：很小的外殼，每次開啟都在網址加時間載入下面兩個檔，避免 Bluefy 拿到快取的舊版
+- `app.js`：畫面縮放、觸控、Web Bluetooth（服務 `FFB0`、握力通道 `FFB2`）、存檔（localStorage）
+- 發佈新版時記得改 `game.js` 的 `VERSION`，選單右下角會顯示
 
 握力球資料格式：ASCII `"19" + 方向(1=用力/0=放鬆) + 握力值`，例如 `19128.0`。
