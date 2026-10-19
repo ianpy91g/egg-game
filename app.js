@@ -28,71 +28,92 @@
     var v = parseFloat(s.slice(3));
     if (!isNaN(v)) { grip.rising = s.charAt(2) === '1'; grip.force = v; }
   }
-  function attach(dev) {
+  // iPad (CoreBluetooth) 的連線請求不會自己逾時：握力球休眠時 gatt.connect() 會永遠等下去。
+  // 所以每一步都加時間限制，逾時就取消；並用 attemptId 讓新的嘗試取代舊的，舊的結果一律忽略。
+  var attemptId = 0, busy = false, lastUserTap = 0, chooseNext = false;
+  function errText(e) { return e ? (e.name || '') + ' ' + (e.message || e) : '未知錯誤'; }
+  function withTimeout(p, ms, what) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject({ name: 'Timeout', message: what + '超過 ' + ms / 1000 + ' 秒沒有回應' }); }, ms);
+      p.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+  function cancelPending(dev) {   // 斷開＝取消還在等的連線請求
+    try { if (dev) dev.gatt.disconnect(); } catch (e) { }
+  }
+  function attach(dev, id) {
+    busy = true;
     grip.status = '連線中…';
-    return dev.gatt.connect()
-      .then(function (server) { return server.getPrimaryService(SERVICE); })
-      .then(function (svc) { return svc.getCharacteristic(FORCE_CHAR); })
+    var current = function () { if (id !== attemptId) throw { name: 'Superseded', message: '已被新的連線取代' }; };
+    return withTimeout(dev.gatt.connect(), 10000, '連線')
+      .then(function (server) { current(); return withTimeout(server.getPrimaryService(SERVICE), 6000, '讀取服務'); })
+      .then(function (svc) { current(); return withTimeout(svc.getCharacteristic(FORCE_CHAR), 6000, '讀取握力通道'); })
       .then(function (ch) {
+        current();
         ch.addEventListener('characteristicvaluechanged', function (e) { parse(e.target.value); });
-        return ch.startNotifications();
+        return withTimeout(ch.startNotifications(), 6000, '開始接收握力');
       })
       .then(function () {
+        current();
+        busy = false; chooseNext = false;
         grip.connected = true;
         grip.status = '已連線 ' + (dev.name || '握力球');
+      }, function (e) {
+        if (id === attemptId) { busy = false; cancelPending(dev); }
+        throw e;
       });
   }
-  var connecting = false, manualReset = false;
-  function errText(e) { return e ? (e.name || '') + ' ' + (e.message || e) : '未知錯誤'; }
   function reconnect() {   // 斷線後在背景自動重連
     clearTimeout(retryTimer);
-    if (!device || connecting || grip.connected) return;
-    connecting = true;
-    attach(device).then(function () { connecting = false; }, function () {
-      connecting = false;
+    if (!device || grip.connected) return;
+    if (busy || Date.now() - lastUserTap < 15000) { retryTimer = setTimeout(reconnect, 3000); return; }
+    var id = ++attemptId;
+    attach(device, id).catch(function (e) {
+      if (id !== attemptId) return;
       grip.status = '握力球斷線，重新連線中…（捏一下喚醒它，或按「連接握力球」）';
-      retryTimer = setTimeout(reconnect, 3000);
+      retryTimer = setTimeout(reconnect, 4000);
     });
   }
   function onDisconnected() {
     grip.connected = false; grip.force = 0;
-    if (manualReset) return;   // 我們自己斷開的（按了重連），不排背景重連
+    if (busy) return;   // 正在連線中（例如使用者按了重連，是我們自己斷開的）：不插手
     grip.status = '握力球斷線，重新連線中…（捏一下喚醒它）';
     clearTimeout(retryTimer);
     retryTimer = setTimeout(reconnect, 1500);
   }
+  function hook(dev) {
+    if (!dev._eggHooked) { dev._eggHooked = true; dev.addEventListener('gattserverdisconnected', onDisconnected); }
+  }
   function connectGrip(showAll) {   // 必須在使用者觸碰的事件裡呼叫（requestDevice 需要使用者手勢）
     if (!bt) { grip.status = '這個瀏覽器不支援藍牙：iPad 請安裝 Bluefy 並用它開啟本網址'; return; }
-    if (connecting) { grip.status = '連線中，請稍候…'; return; }
     clearTimeout(retryTimer);
-    if (device && !showAll) {
-      // 之前選過這顆球：直接重連，不用再選。握力球休眠時 iPad 不一定會通知斷線，
-      // 網頁可能以為還連著，所以一律先斷開再連
-      connecting = true; manualReset = true;
-      try { if (device.gatt.connected) device.gatt.disconnect(); } catch (e) { }
-      manualReset = false;
-      grip.connected = false; grip.force = 0;
-      attach(device).then(function () { connecting = false; }, function (e) {
-        connecting = false;
-        device = null;   // 下次按就重新跳出選擇清單
+    lastUserTap = Date.now();
+    var id = ++attemptId;   // 使用者按的永遠優先：舊的嘗試作廢
+    busy = false;
+    grip.connected = false; grip.force = 0;
+    cancelPending(device);
+    if (device && !showAll && !chooseNext) {
+      // 之前選過這顆球：直接重連，不用再選（握力球休眠時 iPad 不一定會通知斷線，所以先斷開再連）
+      attach(device, id).catch(function (e) {
+        if (id !== attemptId) return;
+        chooseNext = true;   // 下次按就跳出選擇清單
         grip.status = '重連失敗（' + errText(e) + '）：捏一下喚醒握力球，再按一次「連接握力球」';
       });
       return;
     }
-    connecting = true;
     grip.status = '請在跳出的清單選擇 weixin- 開頭的握力球…';
     // 名稱 或 廣播中的服務代碼 任一符合就列出；showAll 時完全不篩選
     var opts = showAll ? { acceptAllDevices: true, optionalServices: [SERVICE] }
                        : { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
     navigator.bluetooth.requestDevice(opts)
       .then(function (dev) {
-        if (dev !== device) dev.addEventListener('gattserverdisconnected', onDisconnected);
-        device = dev;
-        return attach(dev);
+        if (id !== attemptId) return;
+        device = dev; hook(dev);
+        return attach(dev, id);
       })
-      .then(function () { connecting = false; })
       .catch(function (e) {
-        connecting = false;
+        if (id !== attemptId) return;
+        busy = false;
         grip.status = e && e.name === 'NotFoundError'
           ? '沒有選到握力球（' + errText(e) + '）：捏一下喚醒它，或按「列出所有裝置」'
           : '連線失敗：' + errText(e);
