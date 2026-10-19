@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-5';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-6';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -402,15 +402,15 @@
       if (d) {
         s.mode = MODES[d.mode] ? d.mode : d.kids ? 'kids' : 'normal';   // 舊存檔只有 kids 開關
         s.music = d.music !== false;
-        MODE_ORDER.forEach(function (m) {
-          if (d.unlocked && d.unlocked[m]) s.unlocked[m] = d.unlocked[m];
-          if (d.best && d.best[m]) s.best[m] = d.best[m];
-        });
+        // 過關進度與最佳成績刻意不讀回：重新整理後一律從零開始（只記住難度與音樂設定）
       }
     } catch (e) { /* 沒有存檔或格式錯誤 */ }
     return s;
   };
-  G.saveData = function () { this.save.mode = this.modeName; try { this.env.storage.set(JSON.stringify(this.save)); } catch (e) { } };
+  G.saveData = function () {   // 只存偏好設定；進度只留在這次遊玩的記憶體裡
+    this.save.mode = this.modeName;
+    try { this.env.storage.set(JSON.stringify({ mode: this.save.mode, music: this.save.music })); } catch (e) { }
+  };
   G.mode = function () { return this.modeName; };
   G.cfg = function () { return MODES[this.modeName]; };
   G.unlocked = function () { return Math.min(LEVELS, this.save.unlocked[this.mode()]); };
