@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-9';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-10';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -651,8 +651,7 @@
     if (!id) {
       return false;
     }
-    if (id === 'grip') this.env.connectGrip(false);
-    else if (id === 'gripall') this.env.connectGrip(true);
+    if (id === 'grip') this.env.connectGrip();
     else if (id === 'mode') this.cycleMode();
     else if (id === 'music') this.toggleMusic();
     else if (id === 'start' || id === 'next' || id === 'retry' || id === 'go' || id === 'tomenu-end') this.confirm();
@@ -846,10 +845,6 @@
     this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '從第 1 關開始', { primary: true }));
     var gl = g.connected ? '✔ 已連線（點此重連）' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
     this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, g.connected ? { ink: GREEN } : {}));   // 已連線：深底綠字，避免和難度按鈕的顏色混淆
-    if (!g.connected && this.env.bluetoothSupported) {   // 名稱篩選找不到時，列出全部藍牙裝置讓使用者自己挑
-      this.text(ctx, '找不到握力球？', 15, DIM, W - 80, 196);
-      this.drawButton(ctx, this.button('gripall', W - 150, 210, 140, 44, '列出所有裝置'));
-    }
   };
   G.drawIntro = function (ctx) {
     var d = this.art.d, g = this.art.geometry(GROUND_Y, d.px, 0);

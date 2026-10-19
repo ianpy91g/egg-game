@@ -84,7 +84,7 @@
   function hook(dev) {
     if (!dev._eggHooked) { dev._eggHooked = true; dev.addEventListener('gattserverdisconnected', onDisconnected); }
   }
-  function connectGrip(showAll) {   // 必須在使用者觸碰的事件裡呼叫（requestDevice 需要使用者手勢）
+  function connectGrip() {   // 必須在使用者觸碰的事件裡呼叫（requestDevice 需要使用者手勢）
     if (!bt) { grip.status = '這個瀏覽器不支援藍牙：iPad 請安裝 Bluefy 並用它開啟本網址'; return; }
     clearTimeout(retryTimer);
     lastUserTap = Date.now();
@@ -92,7 +92,7 @@
     busy = false;
     grip.connected = false; grip.force = 0;
     cancelPending(device);
-    if (device && !showAll && !chooseNext) {
+    if (device && !chooseNext) {
       // 之前選過這顆球：直接重連，不用再選（握力球休眠時 iPad 不一定會通知斷線，所以先斷開再連）
       attach(device, id).catch(function (e) {
         if (id !== attemptId) return;
@@ -102,9 +102,8 @@
       return;
     }
     grip.status = '請在清單選擇 weixin- 握力球（清單空白：關掉握力球電源再開，或重開 Bluefy）';
-    // 名稱 或 廣播中的服務代碼 任一符合就列出；showAll 時完全不篩選
-    var opts = showAll ? { acceptAllDevices: true, optionalServices: [SERVICE] }
-                       : { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
+    // 名稱 或 廣播中的服務代碼 任一符合就列出
+    var opts = { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
     navigator.bluetooth.requestDevice(opts)
       .then(function (dev) {
         if (id !== attemptId) return;
@@ -115,7 +114,7 @@
         if (id !== attemptId) return;
         busy = false;
         grip.status = e && e.name === 'NotFoundError'
-          ? '沒有選到握力球（' + errText(e) + '）：捏一下喚醒它，或按「列出所有裝置」'
+          ? '沒有選到握力球（' + errText(e) + '）：捏一下喚醒握力球再試一次'
           : '連線失敗：' + errText(e);
       });
   }
