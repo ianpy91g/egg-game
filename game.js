@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-6';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-7';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -155,9 +155,12 @@
     var rw = height / 2 * this.d.aspect * (1 - 0.12 * squash);
     return { rw: rw, rh: rh, cy: ground - rh };
   };
-  EggArt.prototype.draw = function (ctx, cx, ground, height, squash, crack, locked) {
-    var k = this.d.k, g = this.geometry(ground, height, squash || 0), rw = g.rw, rh = g.rh, cy = g.cy;
-    var base = locked ? [48, 46, 60] : this.d.base;
+  // 畫圖快取：Game 每幀設定像素倍率與建立畫布的方法；沒有（例如 Node 測試）就每次直接畫
+  var RENDER = { ps: 1, make: null };
+
+  // 蛋本體（底色、花紋、亮光、外框）。很花時間（大蛋有兩百多個斑點），所以先畫成圖存起來
+  EggArt.prototype.drawBody = function (ctx, cx, cy, rw, rh, locked) {
+    var k = this.d.k, base = locked ? [48, 46, 60] : this.d.base;
     ctx.save();
     eggPath(ctx, cx, cy, rw, rh, k); ctx.clip();
     ctx.fillStyle = rgb(shade(base, -0.3));
@@ -177,7 +180,32 @@
     ctx.restore();
     eggPath(ctx, cx, cy, rw, rh, k);
     ctx.strokeStyle = rgb(shade(base, -0.45)); ctx.lineWidth = 1.2; ctx.stroke();
-    if (crack > 0) this.drawCracks(ctx, cx, cy, rw, rh, crack);
+  };
+  EggArt.prototype.sprite = function (height, locked) {
+    if (!RENDER.make) return null;
+    var key = height.toFixed(1) + (locked ? 'L' : '') + '@' + RENDER.ps.toFixed(2);
+    this.cache = this.cache || {};
+    if (this.cache[key]) return this.cache[key];
+    var g = this.geometry(0, height, 0), w = 2 * g.rw * (1 + this.d.k) + 8, h = 2 * g.rh + 8, ps = RENDER.ps;
+    var c = RENDER.make(Math.ceil(w * ps), Math.ceil(h * ps)), x = c.getContext('2d');
+    x.scale(ps, ps);
+    this.drawBody(x, w / 2, h / 2, g.rw, g.rh, locked);
+    var keys = Object.keys(this.cache);
+    if (keys.length > 6) delete this.cache[keys[0]];
+    return (this.cache[key] = { c: c, w: w, h: h });
+  };
+  // pop：整顆蛋以底部為中心縮放（關卡開場的彈出動畫），用同一張快取圖，不必每幀重畫
+  EggArt.prototype.draw = function (ctx, cx, ground, height, squash, crack, locked, pop) {
+    var g = this.geometry(ground, height, squash || 0), sp = this.sprite(height, locked);
+    pop = pop === undefined ? 1 : Math.max(0.02, pop);
+    if (sp) {   // 壓扁＝把圖橫向縮、縱向拉（蛋形本來就是線性跟著 rw、rh 走）
+      var g0 = this.geometry(ground, height, 0), sx = g.rw / g0.rw * pop, sy = g.rh / g0.rh * pop;
+      // 快取圖中蛋的底部在 y = 2*rh0 + 4（圖高 2*rh0 + 8、蛋置中），縮放後要對齊地面
+      ctx.drawImage(sp.c, cx - sp.w / 2 * sx, ground - (2 * g0.rh + 4) * sy, sp.w * sx, sp.h * sy);
+    } else {
+      this.drawBody(ctx, cx, ground - g.rh * pop, g.rw * pop, g.rh * pop, locked);
+    }
+    if (crack > 0) this.drawCracks(ctx, cx, g.cy, g.rw, g.rh, crack);
     return g;
   };
   EggArt.prototype.drawCracks = function (ctx, cx, cy, rw, rh, level) {
@@ -308,7 +336,12 @@
     var t = this.ac.currentTime;
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(on ? Music.VOLUME : 0, t, 0.2);
-    if (on) { this.next = t + 0.1; }
+    clearInterval(this.timer); this.timer = null;
+    if (on) {   // 用自己的計時器排程，不跟畫面更新綁在一起：畫面卡一下，音樂也不會斷
+      var self = this;
+      this.next = t + 0.1;
+      this.timer = setInterval(function () { self.tick(); }, 50);
+    }
   };
   Music.prototype.duck = function (seconds) {   // 捏破時讓音樂暫時變小聲
     if (!this.enabled) return;
@@ -342,11 +375,11 @@
     s.connect(f); f.connect(g); g.connect(this.master);
     s.start(t);
   };
-  Music.prototype.tick = function () {   // 每幀呼叫：預先排好接下來 0.2 秒內的音符
+  Music.prototype.tick = function () {   // 計時器每 50ms 呼叫：預先排好接下來 0.5 秒內的音符
     if (!this.enabled) return;
     var now = this.ac.currentTime, eighth = 60 / BPM / 2;
     if (this.next < now - 0.3) this.next = now + 0.05;   // 分頁在背景太久，重新對時
-    while (this.next < now + 0.2) {
+    while (this.next < now + 0.5) {
       var t = this.next, st = this.step, bar = Math.floor(st / 8) % 8, inBar = st % 8;
       var m = MELODY[st];
       if (m !== null) {
@@ -488,13 +521,16 @@
     life = life || 1.4;
     this.texts.push({ s: s, color: color, x: x, y: y, life: life, max: life, size: size || 26 });
   };
+  var MAX_PARTICLES = 300;   // iPad Air 2 同時畫太多粒子會卡
   G.burst = function (x, y, color, n, speed, size) {
+    n = Math.min(n, MAX_PARTICLES - this.particles.length);
     for (var i = 0; i < n; i++) {
       var a = Math.random() * Math.PI * 2, v = (0.3 + Math.random() * 0.7) * speed, life = 0.5 + Math.random() * 0.5;
       this.particles.push([x, y, Math.cos(a) * v, Math.sin(a) * v - 150, life, life, rgb(color), size || 5]);
     }
   };
   G.confetti = function () {
+    if (this.particles.length > MAX_PARTICLES - 4) return;
     var cs = [GOLD, GREEN, RED, [120, 180, 255], [255, 140, 220]];
     for (var i = 0; i < 4; i++) {
       var life = 1.5 + Math.random();
@@ -507,7 +543,6 @@
     var force = this.readInput(dt);
     this.force = force;
     this.time += dt;
-    if (this.music) this.music.tick();
     if (this.state !== this.lastState) { this.lastState = this.state; this.stateT = 0; }
     this.stateT += dt;
     this.gripConfirm(this.env.grip.force);
@@ -668,7 +703,21 @@
     ctx.strokeStyle = b.primary ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5; ctx.stroke();
     this.text(ctx, b.label, 20, b.ink || (b.on ? [30, 26, 20] : TEXT), b.x + b.w / 2, b.y + b.h / 2 + 1, { shadow: false });
   };
-  G.drawSky = function (ctx, level) {
+  G.drawSky = function (ctx, level) {   // 天空與地面每關固定，畫一次存起來
+    if (RENDER.make) {
+      var key = level + '@' + RENDER.ps.toFixed(2);
+      if (!this.skyCache || this.skyCache.key !== key) {
+        var c = RENDER.make(Math.ceil(W * RENDER.ps), Math.ceil(H * RENDER.ps)), x = c.getContext('2d');
+        x.scale(RENDER.ps, RENDER.ps);
+        this.paintSky(x, level);
+        this.skyCache = { key: key, c: c };
+      }
+      ctx.drawImage(this.skyCache.c, 0, 0, W, H);
+      return;
+    }
+    this.paintSky(ctx, level);
+  };
+  G.paintSky = function (ctx, level) {
     var sk = SKIES[level - 1], grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
     grad.addColorStop(0, rgb(sk[0])); grad.addColorStop(1, rgb(sk[1]));
     ctx.fillStyle = grad; ctx.fillRect(0, 0, W, GROUND_Y);
@@ -795,7 +844,7 @@
     var g = this.env.grip, bw = 230, gap = 16, x0 = (W - (bw * 3 + gap * 2)) / 2, by = GROUND_Y + 20;
     this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { fill: this.cfg().fill, ink: this.cfg().ink }));
     this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '從第 1 關開始', { primary: true }));
-    var gl = g.connected ? '✔ 已連線握力球' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
+    var gl = g.connected ? '✔ 已連線（點此重連）' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
     this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, g.connected ? { ink: GREEN } : {}));   // 已連線：深底綠字，避免和難度按鈕的顏色混淆
     if (!g.connected && this.env.bluetoothSupported) {   // 名稱篩選找不到時，列出全部藍牙裝置讓使用者自己挑
       this.text(ctx, '找不到握力球？', 15, DIM, W - 80, 196);
@@ -805,7 +854,7 @@
   G.drawIntro = function (ctx) {
     var d = this.art.d, g = this.art.geometry(GROUND_Y, d.px, 0);
     this.drawShadow(ctx, EGG_X, g.rw);
-    this.art.draw(ctx, EGG_X, GROUND_Y, Math.max(2, d.px * easeOutBack(clamp(this.introT / 0.5))), 0, 0, false);
+    this.art.draw(ctx, EGG_X, GROUND_Y, d.px, 0, 0, false, easeOutBack(clamp(this.introT / 0.5)));
     this.panel(ctx, W / 2 - 330, 40, 660, 170);
     this.text(ctx, '第 ' + this.level + ' 關　' + d.name, 48, GOLD, W / 2, 82);
     this.text(ctx, '需要握力 ' + fmt(this.thr) + '，撐住 ' + this.holdTime + ' 秒', 26, TEXT, W / 2, 135);
@@ -823,6 +872,8 @@
 
   G.draw = function (ctx) {
     this.buttons = [];
+    RENDER.ps = this.pixelScale || 1;
+    RENDER.make = this.env.makeCanvas || null;
     ctx.save();
     if (this.screenShake > 0) { var k = this.screenShake * 30; ctx.translate(uniform(Math.random, -k, k), uniform(Math.random, -k, k)); }
     if (this.state === 'menu') this.drawMenu(ctx);

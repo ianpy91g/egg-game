@@ -42,40 +42,66 @@
         grip.status = '已連線 ' + (dev.name || '握力球');
       });
   }
-  function reconnect() {
+  var connecting = false, manualReset = false;
+  function errText(e) { return e ? (e.name || '') + ' ' + (e.message || e) : '未知錯誤'; }
+  function reconnect() {   // 斷線後在背景自動重連
     clearTimeout(retryTimer);
-    if (!device) return;
-    attach(device).catch(function () {
-      grip.status = '握力球斷線，重新連線中…（捏一下喚醒它）';
+    if (!device || connecting || grip.connected) return;
+    connecting = true;
+    attach(device).then(function () { connecting = false; }, function () {
+      connecting = false;
+      grip.status = '握力球斷線，重新連線中…（捏一下喚醒它，或按「連接握力球」）';
       retryTimer = setTimeout(reconnect, 3000);
     });
   }
-  function connectGrip(showAll) {   // 必須在使用者觸碰的事件裡呼叫
+  function onDisconnected() {
+    grip.connected = false; grip.force = 0;
+    if (manualReset) return;   // 我們自己斷開的（按了重連），不排背景重連
+    grip.status = '握力球斷線，重新連線中…（捏一下喚醒它）';
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(reconnect, 1500);
+  }
+  function connectGrip(showAll) {   // 必須在使用者觸碰的事件裡呼叫（requestDevice 需要使用者手勢）
     if (!bt) { grip.status = '這個瀏覽器不支援藍牙：iPad 請安裝 Bluefy 並用它開啟本網址'; return; }
-    if (grip.connected) return;
+    if (connecting) { grip.status = '連線中，請稍候…'; return; }
+    clearTimeout(retryTimer);
+    if (device && !showAll) {
+      // 之前選過這顆球：直接重連，不用再選。握力球休眠時 iPad 不一定會通知斷線，
+      // 網頁可能以為還連著，所以一律先斷開再連
+      connecting = true; manualReset = true;
+      try { if (device.gatt.connected) device.gatt.disconnect(); } catch (e) { }
+      manualReset = false;
+      grip.connected = false; grip.force = 0;
+      attach(device).then(function () { connecting = false; }, function (e) {
+        connecting = false;
+        device = null;   // 下次按就重新跳出選擇清單
+        grip.status = '重連失敗（' + errText(e) + '）：捏一下喚醒握力球，再按一次「連接握力球」';
+      });
+      return;
+    }
+    connecting = true;
     grip.status = '請在跳出的清單選擇 weixin- 開頭的握力球…';
     // 名稱 或 廣播中的服務代碼 任一符合就列出；showAll 時完全不篩選
     var opts = showAll ? { acceptAllDevices: true, optionalServices: [SERVICE] }
                        : { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
     navigator.bluetooth.requestDevice(opts)
       .then(function (dev) {
+        if (dev !== device) dev.addEventListener('gattserverdisconnected', onDisconnected);
         device = dev;
-        dev.addEventListener('gattserverdisconnected', function () {
-          grip.connected = false; grip.force = 0;
-          grip.status = '握力球斷線，重新連線中…（捏一下喚醒它）';
-          retryTimer = setTimeout(reconnect, 1500);
-        });
         return attach(dev);
       })
+      .then(function () { connecting = false; })
       .catch(function (e) {
-        var why = e ? (e.name || '') + ' ' + (e.message || e) : '未知錯誤';
+        connecting = false;
         grip.status = e && e.name === 'NotFoundError'
-          ? '沒有選到握力球（' + why + '）：捏一下喚醒它，或按「列出所有裝置」'
-          : '連線失敗：' + why;
+          ? '沒有選到握力球（' + errText(e) + '）：捏一下喚醒它，或按「列出所有裝置」'
+          : '連線失敗：' + errText(e);
       });
   }
 
-  var game = new EggGame.Game({ grip: grip, storage: storage, audio: null, connectGrip: connectGrip, bluetoothSupported: bt });
+  function makeCanvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  var game = new EggGame.Game({ grip: grip, storage: storage, audio: null, connectGrip: connectGrip,
+                                bluetoothSupported: bt, makeCanvas: makeCanvas });
 
   // ---------- 音效：iOS 要在第一次觸碰時建立 ----------
   var audioReady = false;
@@ -97,11 +123,13 @@
   function resize() {
     var vw = window.innerWidth, vh = window.innerHeight;
     scale = Math.min(vw / W, vh / H);
-    dpr = window.devicePixelRatio || 1;
+    // Retina 最多用 1.5 倍解析度：畫面幾乎看不出差別，iPad Air 2 的繪圖量少一半
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     var cw = Math.round(W * scale), ch = Math.round(H * scale);
     canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
     canvas.style.marginLeft = (-cw / 2) + 'px'; canvas.style.marginTop = (-ch / 2) + 'px';
     canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+    game.pixelScale = scale * dpr;   // 快取圖依實際像素倍率繪製
     document.getElementById('rotate').style.display = vh > vw * 1.1 && !resize.dismissed ? 'flex' : 'none';
   }
   window.addEventListener('resize', resize);
