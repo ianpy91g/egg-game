@@ -6,13 +6,14 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-4';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-5';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
-    kids:   { label: '兒童模式', short: '兒童', ratio: 0.6,  hold: 0.5, attempts: 5, color: [96, 220, 150] },
-    normal: { label: '一般模式', short: '一般', ratio: 1.0,  hold: 0.5, attempts: 5, color: [240, 238, 245] },
-    hard:   { label: '困難模式', short: '困難', ratio: 1.25, hold: 0.5, attempts: 5, color: [255, 90, 90] }
+    // color：文字顏色；fill / ink：難度按鈕的底色與字色（兒童綠、一般橘黃、困難紅）
+    kids:   { label: '兒童模式', short: '兒童', ratio: 0.6,  hold: 0.5, attempts: 5, color: [96, 220, 150], fill: [40, 160, 95], ink: [255, 255, 255] },
+    normal: { label: '一般模式', short: '一般', ratio: 1.0,  hold: 0.5, attempts: 5, color: [255, 190, 70], fill: [240, 165, 40], ink: [40, 26, 10] },
+    hard:   { label: '困難模式', short: '困難', ratio: 1.25, hold: 0.5, attempts: 5, color: [255, 90, 90], fill: [215, 55, 60], ink: [255, 255, 255] }
   };
   var MODE_ORDER = ['kids', 'normal', 'hard'];
   var CONTACT_FORCE = 3.0;   // 握力到這個值蛋才開始變形
@@ -601,7 +602,7 @@
   G.button = function (id, x, y, w, h, label, opts) {
     opts = opts || {};
     this.buttons.push({ id: id, x: x, y: y, w: w, h: h });
-    return { x: x, y: y, w: w, h: h, label: label, primary: opts.primary, on: opts.on };
+    return { x: x, y: y, w: w, h: h, label: label, primary: opts.primary, on: opts.on, fill: opts.fill, ink: opts.ink };
   };
   G.hit = function (x, y) {
     for (var i = this.buttons.length - 1; i >= 0; i--) {
@@ -662,10 +663,10 @@
   };
   G.drawButton = function (ctx, b) {
     roundRect(ctx, b.x, b.y, b.w, b.h, 12);
-    ctx.fillStyle = b.primary ? 'rgb(79,140,255)' : b.on ? 'rgba(255,205,70,0.9)' : 'rgba(40,36,58,0.92)';
+    ctx.fillStyle = b.fill ? rgb(b.fill) : b.primary ? 'rgb(79,140,255)' : b.on ? 'rgba(255,205,70,0.9)' : 'rgba(40,36,58,0.92)';
     ctx.fill();
     ctx.strokeStyle = b.primary ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5; ctx.stroke();
-    this.text(ctx, b.label, 20, b.on ? [30, 26, 20] : TEXT, b.x + b.w / 2, b.y + b.h / 2 + 1, { shadow: false });
+    this.text(ctx, b.label, 20, b.ink || (b.on ? [30, 26, 20] : TEXT), b.x + b.w / 2, b.y + b.h / 2 + 1, { shadow: false });
   };
   G.drawSky = function (ctx, level) {
     var sk = SKIES[level - 1], grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
@@ -792,10 +793,10 @@
     this.text(ctx, furthest === LEVELS ? '已經全部捏破過了！再挑戰一次？'
       : furthest ? '最遠破到第 ' + furthest + ' 關（' + EGGS[furthest - 1].name + '）' : '還沒挑戰過', 16, furthest === LEVELS ? GOLD : DIM, W / 2, 244);
     var g = this.env.grip, bw = 230, gap = 16, x0 = (W - (bw * 3 + gap * 2)) / 2, by = GROUND_Y + 20;
-    this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { on: this.modeName !== 'normal' }));
+    this.drawButton(ctx, this.button('mode', x0, by, bw, 46, '難度：' + this.cfg().short + '（點我切換）', { fill: this.cfg().fill, ink: this.cfg().ink }));
     this.drawButton(ctx, this.button('start', x0 + bw + gap, by, bw, 46, '從第 1 關開始', { primary: true }));
     var gl = g.connected ? '✔ 已連線握力球' : this.env.bluetoothSupported ? '連接握力球' : '此瀏覽器不支援藍牙';
-    this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, { on: g.connected }));
+    this.drawButton(ctx, this.button('grip', x0 + (bw + gap) * 2, by, bw, 46, gl, g.connected ? { ink: GREEN } : {}));   // 已連線：深底綠字，避免和難度按鈕的顏色混淆
     if (!g.connected && this.env.bluetoothSupported) {   // 名稱篩選找不到時，列出全部藍牙裝置讓使用者自己挑
       this.text(ctx, '找不到握力球？', 15, DIM, W - 80, 196);
       this.drawButton(ctx, this.button('gripall', W - 150, 210, 140, 44, '列出所有裝置'));
