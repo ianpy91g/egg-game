@@ -1,6 +1,6 @@
 # 捏蛋大挑戰（網頁版）
 
-用 ORIORI 握力球捏破 10 種由小到大的蛋：麻雀蛋 → 恐龍蛋。破完 10 關會出現特別關「奇異鳥蛋」（一般模式握力 60，兒童 36、困難 75），捏破後孵出 Kiwi Trip 的 Kiwi（`kiwi.png`，由 Blender 模型 kiwi10.blend 的正面攝影機算圖）。
+用 ORIORI 握力球捏破 10 種由小到大的蛋：麻雀蛋 → 恐龍蛋。破完 10 關會出現特別關「奇異鳥蛋」（一般模式握力 60，兒童 36、困難 75），捏破後孵出 Kiwi Trip 的 Kiwi（`kiwi.png`：kiwi10.blend 正面攝影機以 EEVEE 扁平算圖，拿掉毛髮、只用模型原本的兩種頂點色）。
 
 **開始玩：** https://ianpy91g.github.io/egg-game/
 
