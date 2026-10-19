@@ -101,7 +101,7 @@
       });
       return;
     }
-    grip.status = '請在跳出的清單選擇 weixin- 開頭的握力球…';
+    grip.status = '請在清單選擇 weixin- 握力球（清單空白：關掉握力球電源再開，或重開 Bluefy）';
     // 名稱 或 廣播中的服務代碼 任一符合就列出；showAll 時完全不篩選
     var opts = showAll ? { acceptAllDevices: true, optionalServices: [SERVICE] }
                        : { filters: [{ namePrefix: 'weixin' }, { services: [SERVICE] }], optionalServices: [SERVICE] };
@@ -118,6 +118,33 @@
           ? '沒有選到握力球（' + errText(e) + '）：捏一下喚醒它，或按「列出所有裝置」'
           : '連線失敗：' + errText(e);
       });
+  }
+
+  // 重新整理網頁時，藍牙連線是 Bluefy 在底層維持的，不會跟著網頁消失：
+  // 握力球仍連著 iPad、停止廣播，新網頁的選擇清單就找不到它。所以離開網頁前主動斷線釋放。
+  function release() {
+    attemptId++;
+    clearTimeout(retryTimer);
+    cancelPending(device);
+  }
+  window.addEventListener('pagehide', release);
+  window.addEventListener('beforeunload', release);
+
+  // 網頁一打開就找回之前授權過的握力球（瀏覽器支援 getDevices 時），不用再跳選擇清單；
+  // 就算舊連線還卡在底層，對同一個裝置 connect() 也能直接沿用
+  if (bt && navigator.bluetooth.getDevices) {
+    navigator.bluetooth.getDevices().then(function (list) {
+      var dev = null;
+      for (var i = 0; i < list.length; i++) if ((list[i].name || '').indexOf('weixin') === 0) dev = list[i];
+      if (!dev || device) return;
+      device = dev; hook(dev);
+      var id = ++attemptId;
+      grip.status = '找到之前連過的 ' + (dev.name || '握力球') + '，自動連線中…';
+      attach(dev, id).catch(function (e) {
+        if (id !== attemptId) return;
+        grip.status = '自動連線失敗（' + errText(e) + '）：捏一下握力球，再按「連接握力球」';
+      });
+    }, function () { /* 不支援或沒有授權過的裝置 */ });
   }
 
   function makeCanvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
