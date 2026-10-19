@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-13';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.19-14';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -59,6 +59,7 @@
   function lerpColor(a, b, t) { return [lerp(a[0], b[0], t) | 0, lerp(a[1], b[1], t) | 0, lerp(a[2], b[2], t) | 0]; }
   function shade(c, amt) { return lerpColor(c, amt < 0 ? [0, 0, 0] : [255, 255, 255], Math.abs(amt)); }
   function rgb(c, a) { return a === undefined ? 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')' : 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
   function easeOutBack(t) { var c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
   function halfWidth(v, k) { return Math.sqrt(Math.max(0, 1 - v * v)) * (1 + k * v); }
   function fmt(x) { return (Math.round(x * 10) / 10).toString(); }
@@ -561,7 +562,7 @@
   };
   G.startSmash = function () {
     var d = this.art.d;
-    this.state = 'smash'; this.smashT = 0; this.animT = 0;
+    this.state = 'smash'; this.smashT = 0; this.animT = 0; this.kiwiLanded = false;
     this.screenShake = 0.45; this.flash = 0.18;
     this.sfx.play('smash');
     if (this.music) this.music.duck(this.level >= LEVELS ? 3.0 : 1.6);
@@ -655,6 +656,7 @@
         if (s.y > GROUND_Y - 4) { s.y = GROUND_Y - 4; s.vy = -s.vy * 0.25; s.vx *= 0.6; s.vr *= 0.5; }
       }
       if (this.level >= LEVELS && this.smashT > 0.55 && !this.pipped) { this.pipped = true; this.sfx.play('pip'); }
+      if (this.level === SPECIAL && !this.kiwiLanded && this.animT >= KIWI_LAND) { this.kiwiLanded = true; this.kiwiLanding(); }
       if (this.smashT > (this.level >= LEVELS ? 3.0 : 2.3)) { this.pipped = false; this.finishLevel(); }
     } else if (this.state === 'ending' || this.state === 'ending2') {
       this.animT += dt; this.confetti();
@@ -886,20 +888,38 @@
         { angle: 8 * Math.PI / 180, scale: Math.max(0.05, k), shadowColor: 'rgb(60,30,20)', shadowOff: 4 });
     }
   };
-  // Kiwi（Kiwi Trip 的角色正面圖）：從蛋殼裡冒出來，跳到蛋殼前面落地，之後輕輕彈跳
+  // Kiwi（Kiwi Trip 的角色正面圖）：從蛋殼衝上天、在空中變大，再「碰」一聲重重落地（壓扁再彈回），之後輕輕彈跳
+  var KIWI_H = 380, KIWI_UP = 0.45, KIWI_TOP = 0.78, KIWI_LAND = 1.08;
   G.drawKiwiHatch = function (ctx, t, cupTop) {
-    var KH = 190, landX = EGG_X + 10, rise = t > 0.45 ? easeOutBack(clamp((t - 0.45) / 0.5)) : 0;
-    var jump = clamp((t - 1.25) / 0.55);
-    if (jump <= 0) {   // 還在蛋殼裡：只露出上半身
-      if (rise > 0) this.drawKiwi(ctx, EGG_X, cupTop + 70 + (1 - rise) * 150, KH, cupTop + 30);
-      drawCup(ctx, this.art, EGG_X, GROUND_Y, this.art.d.px);
-      return;
-    }
+    var landX = EGG_X - 20, landY = GROUND_Y + 12;
     drawCup(ctx, this.art, EGG_X, GROUND_Y, this.art.d.px);
-    var fx = lerp(EGG_X, landX, jump), fy = lerp(cupTop + 70, GROUND_Y + 12, jump) - Math.sin(jump * Math.PI) * 120;
-    var hop = jump >= 1 ? Math.abs(Math.sin((t - 1.8) * 3.2)) * 14 : 0, sq = jump >= 1 ? 1 - Math.max(0, Math.cos((t - 1.8) * 6.4)) * 0.04 : 1;
-    ellipse(ctx, fx, GROUND_Y + 10, 70 * (1 - hop / 40), 12, 'rgba(0,0,0,0.3)');
-    this.drawKiwi(ctx, fx, fy - hop, KH * sq);
+    if (t < KIWI_UP) return;
+    var x, y, h = KIWI_H, sx = 1, sy = 1;
+    if (t < KIWI_TOP) {   // 衝出來：由小變大往上飛
+      var u = easeOutCubic(clamp((t - KIWI_UP) / (KIWI_TOP - KIWI_UP)));
+      x = lerp(EGG_X, landX, u * 0.5); y = lerp(cupTop + 40, 420, u); h = KIWI_H * lerp(0.25, 1.05, u);
+    } else if (t < KIWI_LAND) {   // 落下（加速）
+      var v = clamp((t - KIWI_TOP) / (KIWI_LAND - KIWI_TOP));
+      x = lerp(EGG_X, landX, 0.5 + v * 0.5); y = lerp(420, landY, v * v); h = KIWI_H * lerp(1.05, 1, v);
+      sy = 1 + v * v * 0.08; sx = 1 - v * v * 0.05;   // 往下衝時稍微拉長
+    } else {   // 落地：先壓扁再彈回，之後輕輕彈跳
+      var a = t - KIWI_LAND, k = Math.exp(-a * 6) * Math.cos(a * 22);
+      x = landX; y = landY; sy = 1 - 0.22 * k; sx = 1 + 0.18 * k;
+      if (a > 0.8) y -= Math.abs(Math.sin((a - 0.8) * 3.2)) * 18;
+    }
+    var shadowK = clamp(1 - (landY - y) / 200);
+    ellipse(ctx, x, GROUND_Y + 10, 150 * sx * (0.4 + 0.6 * shadowK), 22 * (0.4 + 0.6 * shadowK), 'rgba(0,0,0,' + (0.35 * shadowK).toFixed(2) + ')');
+    ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy);
+    this.drawKiwi(ctx, 0, 0, h);
+    ctx.restore();
+  };
+  G.kiwiLanding = function () {   // 落地瞬間：震動、塵土、碰一聲
+    this.screenShake = 0.4; this.flash = 0.08;
+    this.sfx.play('smash');
+    var gy = GROUND_Y + 4, x = EGG_X - 20;
+    this.burst(x - 110, gy, [190, 200, 170], 22, 300, 6); this.burst(x + 110, gy, [190, 200, 170], 22, 300, 6);
+    this.burst(x, gy - 40, [255, 240, 170], 30, 420, 4);
+    this.floatText('碰！', GOLD, x - 250, GROUND_Y - 200, 64, 1.2);
   };
   G.drawKiwi = function (ctx, x, footY, h, clipY) {
     var img = this.env.kiwiImage;
