@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026.10.19-15';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
+  var VERSION = '2026.10.30-1';   // 每次發佈都改，選單右下角會顯示，方便確認拿到的是不是最新版
   var W = 960, H = 540, GROUND_Y = 450, EGG_X = 400;
   // 三種難度：握力門檻倍率、要撐住幾秒、每關幾次機會
   var MODES = {
@@ -19,6 +19,7 @@
   var CONTACT_FORCE = 3.0;   // 握力到這個值蛋才開始變形
   var START_FORCE = 3.0;     // 超過這個值開始算一次捏
   var RELEASE_FORCE = 1.5;   // 低於這個值算完全放開
+  var REGRIP_RISE = 2.0;     // 放手後從最低點回升這麼多，也算重新捏（讀數沒降到 RELEASE_FORCE 時）
   var CONFIRM_FORCE = 5.0;   // 選單/結算畫面「捏一下＝下一步」所需的握力
   var CONFIRM_DELAY = 0.8;   // 畫面出現多久之後才接受捏一下
   var FONT = '"PingFang TC", "Heiti TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif';
@@ -694,7 +695,12 @@
     var peakEnd = null;
     // 從高處鬆手時，握力降到門檻 30% 就判定這次結束，但那時通常還在 3 以上；
     // 若不等完全放開，同一次放手會被當成「又捏了一次」再扣一次機會
-    if (this.waitRelease && force <= RELEASE_FORCE) this.waitRelease = false;
+    // 但放手後讀數不一定會降到 RELEASE_FORCE 以下（手還輕握著、或球的讀數停在 2～3），
+    // 所以從放手後的最低點又明顯回升，也算放開過、可以開始新的一次；否則會一直撐不出來
+    if (this.waitRelease) {
+      this.releaseMin = Math.min(this.releaseMin, force);
+      if (force <= RELEASE_FORCE || force >= this.releaseMin + REGRIP_RISE) this.waitRelease = false;
+    }
     if (!this.inAttempt && !this.waitRelease && force >= START_FORCE) {
       this.inAttempt = true; this.attemptPeak = 0;
       if (this.levelStart === null) this.levelStart = this.time;
@@ -703,7 +709,7 @@
       this.attemptPeak = Math.max(this.attemptPeak, force);
       this.levelPeak = Math.max(this.levelPeak, force);
       var letGo = Math.max(2, thr * 0.3);
-      if (force <= RELEASE_FORCE || (this.attemptPeak > letGo * 1.3 && force < letGo)) { this.inAttempt = false; this.waitRelease = true; peakEnd = this.attemptPeak; }
+      if (force <= RELEASE_FORCE || (this.attemptPeak > letGo * 1.3 && force < letGo)) { this.inAttempt = false; this.waitRelease = true; this.releaseMin = force; peakEnd = this.attemptPeak; }
     }
     // 在門檻以上累積撐住的時間；稍微掉下來時慢慢退
     if (this.inAttempt && force >= thr) this.hold += dt;
